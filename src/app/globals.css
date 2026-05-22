@@ -602,34 +602,34 @@ a {
     color-mix(in srgb, var(--panel-strong) 70%, transparent);
   border: 1px solid var(--line);
   display: grid;
-  place-items: center;
-  padding: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  align-items: end;
+  justify-items: center;
+  padding: 14px;
 }
 
-.muscle-map svg {
-  width: min(100%, 620px);
+.muscle-body-panel {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  justify-items: center;
+  padding: 10px 8px;
+  border-radius: 18px;
+  background: color-mix(in srgb, var(--panel-strong) 34%, transparent);
+}
+
+.muscle-body-panel svg {
+  width: min(100%, 104px);
   height: auto;
+  overflow: visible;
+  filter: drop-shadow(0 16px 28px color-mix(in srgb, var(--accent) 16%, transparent));
 }
 
-.body-outline circle,
-.body-outline path {
-  fill: color-mix(in srgb, var(--panel-strong) 72%, transparent);
-  stroke: color-mix(in srgb, var(--text) 38%, transparent);
-  stroke-width: 2.2;
-}
-
-.muscle-zone {
-  fill: color-mix(in srgb, var(--muted) 18%, transparent);
-  stroke: color-mix(in srgb, var(--text) 24%, transparent);
-  stroke-width: 1.2;
-  transition: fill 0.2s ease, filter 0.2s ease, opacity 0.2s ease;
-}
-
-.muscle-zone.active {
-  fill: url("#muscleActive");
-  opacity: 0.92;
-  filter: url("#softGlow");
-  stroke: color-mix(in srgb, white 46%, var(--accent));
+.visual-license {
+  grid-column: 1 / -1;
+  margin: 0;
+  text-align: center;
 }
 
 .training-section {

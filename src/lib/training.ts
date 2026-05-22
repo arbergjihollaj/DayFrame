@@ -1,15 +1,14 @@
 import { z } from "zod";
+import { fixedMuscleGroups, normalizeMuscleGroups } from "@/lib/muscles";
 import type { DailyTrainingPlan, TrainingDifficulty } from "@/lib/types";
 
 export const availableTrainingEquipment = ["Laufband", "Pull-up-Stange", "Liegestützebrett", "Yogamatte", "Körpergewicht"] as const;
-export const visualMuscleGroups = ["Brust", "Rücken", "Schultern", "Bizeps", "Trizeps", "Bauch", "Beine", "Gesäß", "Waden", "Unterarme"] as const;
-
-const muscleEnum = z.enum(visualMuscleGroups);
+export const visualMuscleGroups = fixedMuscleGroups;
 
 export const dailyTrainingPlanSchema = z.object({
   title: z.string().min(3),
   durationMinutes: z.number().int().min(20).max(60),
-  focusMuscles: z.array(muscleEnum).min(1),
+  focusMuscles: z.array(z.string()).min(1),
   warmup: z.array(
     z.object({
       name: z.string(),
@@ -20,7 +19,7 @@ export const dailyTrainingPlanSchema = z.object({
   exercises: z.array(
     z.object({
       name: z.string(),
-      muscles: z.array(muscleEnum).min(1),
+      muscles: z.array(z.string()).min(1),
       sets: z.number().int().min(1).max(8),
       reps: z.string().nullable(),
       duration: z.string().nullable(),
@@ -204,10 +203,24 @@ export async function generateTrainingWithGemini(date: string, difficulty: Train
     throw new GeminiTrainingError("Gemini hat keine Antwort geliefert. Bitte erneut versuchen.");
   }
   try {
-    return dailyTrainingPlanSchema.parse(JSON.parse(text));
+    return normalizeTrainingPlan(dailyTrainingPlanSchema.parse(JSON.parse(text)));
   } catch {
     throw new GeminiTrainingError("Gemini hat keinen validen Trainingsplan geliefert. Der Fallback-Plan wird angezeigt.");
   }
+}
+
+function normalizeTrainingPlan(plan: DailyTrainingPlan): DailyTrainingPlan {
+  const exercises = plan.exercises.map((exercise) => ({
+    ...exercise,
+    muscles: normalizeMuscleGroups(exercise.muscles),
+  }));
+  const exerciseMuscles = exercises.flatMap((exercise) => exercise.muscles);
+  const focusMuscles = normalizeMuscleGroups(plan.focusMuscles);
+  return {
+    ...plan,
+    focusMuscles: focusMuscles.length ? focusMuscles : normalizeMuscleGroups(exerciseMuscles),
+    exercises,
+  };
 }
 
 async function readableGeminiError(response: Response, model: string) {
