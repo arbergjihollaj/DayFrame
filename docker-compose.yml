@@ -1,0 +1,31 @@
+services:
+  app:
+    build: .
+    container_name: dayframe
+    restart: unless-stopped
+    ports:
+      - "3060:3000"
+    env_file:
+      - .env
+    environment:
+      TZ: Europe/Berlin
+      DATABASE_PATH: /app/data/dayframe.sqlite
+    volumes:
+      - dayframe-data:/app/data
+      - ./.env:/app/.env
+
+  cron:
+    image: alpine:3.20
+    container_name: dayframe-cron
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      TZ: Europe/Berlin
+    command: >
+      sh -c "apk add --no-cache tzdata wget &&
+      echo '* * * * * wget -qO- http://app:3000/api/briefing/cron >/proc/1/fd/1 2>/proc/1/fd/2' > /etc/crontabs/root &&
+      crond -f -l 2"
+
+volumes:
+  dayframe-data:
