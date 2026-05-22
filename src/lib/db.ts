@@ -1,10 +1,14 @@
 import Database from "better-sqlite3";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { defaultNewsSources, defaultSettings } from "@/lib/defaults";
 import type { Briefing, DailyContext, DailyPlanDetails, EnergyCheckIn, PlanningTask, Settings, Subject, Topic } from "@/lib/types";
 
-const dbPath = process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "dayframe.sqlite");
+const isNextProductionBuild = process.env.NEXT_PHASE === "phase-production-build" || process.env.npm_lifecycle_event === "build";
+const dbPath = isNextProductionBuild
+  ? path.join(os.tmpdir(), `dayframe-build-${process.pid}.sqlite`)
+  : process.env.DATABASE_PATH ?? path.join(process.cwd(), "data", "dayframe.sqlite");
 fs.mkdirSync(path.dirname(dbPath), { recursive: true });
 
 const globalForDb = globalThis as unknown as { dayframeDb?: Database.Database };
