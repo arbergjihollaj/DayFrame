@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { getSettings, getTrainingPlanByDate, saveTrainingPlan } from "@/lib/db";
 import { todayKey } from "@/lib/date";
-import { fallbackTrainingPlan, generateTrainingWithGemini } from "@/lib/training";
+import { fallbackTrainingPlan, GeminiTrainingError, generateTrainingWithGemini } from "@/lib/training";
 
 async function buildPlan(force = false) {
   const date = todayKey();
@@ -17,7 +17,8 @@ async function buildPlan(force = false) {
     return saveTrainingPlan(date, fallbackTrainingPlan(difficulty), "fallback", difficulty, "Gemini ist nicht konfiguriert oder nicht erreichbar.");
   } catch (error) {
     const message = error instanceof Error ? error.message : "Gemini konnte keinen validen Trainingsplan liefern.";
-    return saveTrainingPlan(date, fallbackTrainingPlan(difficulty), "fallback", difficulty, message);
+    const training = saveTrainingPlan(date, fallbackTrainingPlan(difficulty), "fallback", difficulty, message);
+    return error instanceof GeminiTrainingError ? { ...training, retryAfterSeconds: error.retryAfterSeconds } : training;
   }
 }
 

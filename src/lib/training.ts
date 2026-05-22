@@ -144,8 +144,21 @@ JSON-Struktur:
 Achte darauf, dass focusMuscles nur Muskelgruppen enthält, die auch in der Körperzeichnung hervorgehoben werden können: Brust, Rücken, Schultern, Bizeps, Trizeps, Bauch, Beine, Gesäß, Waden, Unterarme.
 `.trim();
 
+export class GeminiTrainingError extends Error {
+  constructor(
+    message: string,
+    public status?: number,
+    public retryAfterSeconds?: number,
+  ) {
+    super(message);
+    this.name = "GeminiTrainingError";
+  }
+}
+
 export async function generateTrainingWithGemini(date: string, difficulty: TrainingDifficulty): Promise<DailyTrainingPlan | null> {
-  if (!process.env.GEMINI_API_KEY) return null;
+  if (!process.env.GEMINI_API_KEY) {
+    throw new GeminiTrainingError("Gemini API-Key fehlt. Bitte in den Einstellungen einen Gemini-Key speichern.");
+  }
   const model = process.env.GEMINI_MODEL || "gemini-2.5-flash";
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {
     method: "POST",
@@ -180,13 +193,48 @@ export async function generateTrainingWithGemini(date: string, difficulty: Train
       },
     }),
   });
-  if (!response.ok) return null;
+  if (!response.ok) {
+    throw new GeminiTrainingError(await readableGeminiError(response, model), response.status, retryAfterFrom(response));
+  }
   const data = (await response.json()) as {
     candidates?: { content?: { parts?: { text?: string }[] } }[];
   };
   const text = data.candidates?.[0]?.content?.parts?.map((part) => part.text ?? "").join("") ?? "";
-  if (!text) return null;
-  return dailyTrainingPlanSchema.parse(JSON.parse(text));
+  if (!text) {
+    throw new GeminiTrainingError("Gemini hat keine Antwort geliefert. Bitte erneut versuchen.");
+  }
+  try {
+    return dailyTrainingPlanSchema.parse(JSON.parse(text));
+  } catch {
+    throw new GeminiTrainingError("Gemini hat keinen validen Trainingsplan geliefert. Der Fallback-Plan wird angezeigt.");
+  }
+}
+
+async function readableGeminiError(response: Response, model: string) {
+  const fallback = `Gemini konnte gerade keinen Trainingsplan erstellen (${response.status}).`;
+  let message = "";
+  try {
+    const data = (await response.json()) as { error?: { message?: string; status?: string } };
+    message = data.error?.message ?? "";
+  } catch {
+    return fallback;
+  }
+  if (response.status === 429) {
+    const retryAfter = retryAfterFrom(response);
+    const suffix = retryAfter ? ` Bitte in etwa ${retryAfter} Sekunden erneut versuchen.` : " Bitte später erneut versuchen.";
+    return `Gemini-Limit erreicht für ${model}.${suffix}`;
+  }
+  if (response.status === 400) return "Gemini konnte die Anfrage nicht verarbeiten. Bitte Modell und Prompt-Konfiguration prüfen.";
+  if (response.status === 401 || response.status === 403) return "Gemini-Key ist ungültig oder hat keine Berechtigung. Bitte den API-Key in den Einstellungen prüfen.";
+  if (response.status >= 500) return "Gemini ist gerade serverseitig nicht erreichbar. Der Fallback-Plan wird angezeigt.";
+  return message ? `Gemini-Fehler: ${message}` : fallback;
+}
+
+function retryAfterFrom(response: Response) {
+  const header = response.headers.get("retry-after");
+  if (!header) return undefined;
+  const seconds = Number(header);
+  return Number.isFinite(seconds) ? Math.max(1, Math.round(seconds)) : undefined;
 }
 
 export function fallbackTrainingPlan(difficulty: TrainingDifficulty = "normal"): DailyTrainingPlan {

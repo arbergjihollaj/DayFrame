@@ -10,6 +10,7 @@ type TrainingPayload = {
   plan: DailyTrainingPlan;
   source: string;
   errorMessage: string | null;
+  retryAfterSeconds?: number;
 };
 
 export function TrainingPage() {
@@ -75,7 +76,11 @@ export function TrainingPage() {
       {training?.source === "fallback" ? (
         <div className="card training-alert">
           <AlertTriangle size={19} />
-          <span>{training.errorMessage ?? "Fallback-Training aktiv."}</span>
+          <span>
+            <strong>Fallback-Training aktiv.</strong>{" "}
+            {training.errorMessage ?? "Gemini konnte gerade keinen Plan erstellen."}
+            {training.retryAfterSeconds ? ` Neuer Versuch in ca. ${training.retryAfterSeconds} Sekunden sinnvoll.` : ""}
+          </span>
         </div>
       ) : null}
 
