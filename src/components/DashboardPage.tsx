@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { AlertTriangle, Moon, RefreshCw, Sparkles } from "lucide-react";
+import { AlertTriangle, RefreshCw, Sparkles } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { Briefing, DailyContext, DailyPlanDetails, EnergyCheckIn, PlanItem, Settings } from "@/lib/types";
+import type { Briefing, DailyContext, DailyPlanDetails, EnergyCheckIn, PlanItem, Settings, WeatherSummary } from "@/lib/types";
 import { SetupWizard } from "@/components/SetupWizard";
 
 type StatusRow = { todoId: string; checked: number };
@@ -14,6 +14,7 @@ type TodayPayload = {
   dailyContext: DailyContext | null;
   energyCheckIn: EnergyCheckIn | null;
 };
+type ContextCheckIn = { sleepHours: number; energy: number };
 
 const sectionLabels = {
   morning: "Morgen",
@@ -30,6 +31,16 @@ const icons: Record<PlanItem["type"], string> = {
   routine: "✓",
   sleep: "☾",
 };
+
+const ratingShapes = [
+  { label: "Plan war gut", tone: "good" },
+  { label: "Teilweise geschafft", tone: "partial" },
+  { label: "Nicht geschafft", tone: "missed" },
+];
+
+function ratingTone(rating: string | null) {
+  return ratingShapes.find((shape) => shape.label === rating)?.tone ?? "open";
+}
 
 export function DashboardPage() {
   const [data, setData] = useState<TodayPayload | null>(null);
@@ -72,7 +83,7 @@ export function DashboardPage() {
     }
   }
 
-  async function answerDailyContext(goesToUniversity: boolean) {
+  async function answerDailyContext(goesToUniversity: boolean, checkIn: ContextCheckIn) {
     const current = data?.dailyContext?.goesToUniversity;
     if (data?.briefing && current !== undefined && current !== goesToUniversity) {
       const ok = window.confirm("Tageskontext ändern und heutigen Plan neu erstellen?");
@@ -81,6 +92,10 @@ export function DashboardPage() {
     setContextModalOpen(false);
     setLoadingText("Dein Tagesplan wird angepasst...");
     setLoading(true);
+    await fetch("/api/check-in/morning", {
+      method: "POST",
+      body: JSON.stringify({ sleepHours: checkIn.sleepHours, energy: checkIn.energy, stress: data?.energyCheckIn?.stress ?? 3, soreness: data?.energyCheckIn?.soreness ?? 2, manualEmergency: data?.energyCheckIn?.manualEmergency ?? false }),
+    });
     const response = await fetch("/api/daily-context", {
       method: "POST",
       body: JSON.stringify({ goesToUniversity }),
@@ -89,7 +104,7 @@ export function DashboardPage() {
       setContextDismissed(false);
       await fetch("/api/briefing/generate", { method: "POST" });
       await load();
-      setToast("Dein Tagesplan wurde an den Tageskontext angepasst.");
+      setToast("Tageskontext und Check-in gespeichert. Dein Plan wurde angepasst.");
       setTimeout(() => setToast(""), 3200);
     }
     setLoading(false);
@@ -129,18 +144,19 @@ export function DashboardPage() {
   }
 
   const briefing = data.briefing;
-  const allPlanItems = briefing
-    ? (Object.keys(sectionLabels) as (keyof typeof sectionLabels)[]).flatMap((section) =>
-        briefing.dayPlan[section].map((item) => ({ ...item, section })),
-      )
-    : [];
-  const firstCalendar = allPlanItems.find((item) => item.type === "calendar");
-  const firstLearning = allPlanItems.find((item) => item.type === "learning");
-  const routineCount = allPlanItems.filter((item) => item.type === "routine" || item.type === "sleep").length;
   const planning = briefing?.planning;
+  const todoSections = briefing
+    ? (Object.keys(sectionLabels) as (keyof typeof sectionLabels)[])
+        .map((section) => ({
+          section,
+          items: briefing.dayPlan[section].filter((item) => item.type === "routine" || item.type === "sleep"),
+        }))
+        .filter((section) => section.items.length)
+    : [];
 
   return (
     <div className="dashboard">
+      {briefing ? <WeatherOverview weather={briefing.weather} fallbackPlace={settings.weatherPlace} /> : null}
       <header className="dashboard-hero">
         <div className="hero-main">
           <span className="eyebrow">
@@ -158,28 +174,6 @@ export function DashboardPage() {
             </span>
           </div>
         </div>
-        <aside className="hero-side">
-          <div className="mini">
-            <b>Heute</b>
-            <strong>{firstCalendar ? `${firstCalendar.time}-${firstCalendar.endTime} ${firstCalendar.title}` : briefing?.weather.label ?? "Noch offen"}</strong>
-            <span className="muted small">{firstCalendar ? "Fixer Termin aus deinem Kalender." : "Wetter und Planung kompakt."}</span>
-          </div>
-          <div className="mini">
-            <b>Lernen</b>
-            <strong>{firstLearning?.title ?? "Themen nach Bedarf"}</strong>
-            <span className="muted small">Aus deinen Fächern und Sicherheiten geplant.</span>
-          </div>
-          <div className="mini">
-            <b>Routine</b>
-            <strong>{routineCount || 0} kleine Schritte</strong>
-            <span className="muted small">Abhakbar im Tagesplan.</span>
-          </div>
-          <div className="mini">
-            <b>Tageskontext</b>
-            <strong>{data.dailyContext ? (data.dailyContext.goesToUniversity ? "Uni / unterwegs" : "Zuhause") : "Noch offen"}</strong>
-            <button className="pill" style={{ marginTop: 10 }} onClick={() => setContextModalOpen(true)}>Ändern</button>
-          </div>
-        </aside>
       </header>
 
       {toast ? <div className="card small" style={{ color: "var(--ok)" }}>{toast}</div> : null}
@@ -208,16 +202,10 @@ export function DashboardPage() {
             <div className="section-head">
               <div>
                 <h2>Heute kompakt</h2>
-                <div className="muted">Wetter, Wochenauslastung und kurzer Blick auf morgen.</div>
+                <div className="muted">Wochenauslastung und kurzer Blick auf morgen.</div>
               </div>
             </div>
-            <div className="grid three">
-              <div className="card focusbox">
-                <h3 className="section-title">Wetter</h3>
-                <p className="quote">{briefing.weather.label}</p>
-                <p className="muted small">{briefing.weather.place ?? settings.weatherPlace}</p>
-                {briefing.weather.warning ? <p className="muted small">{briefing.weather.warning}</p> : null}
-              </div>
+            <div className="grid two">
               <div className="card week-card">
                 <h3 className="section-title">Woche</h3>
                 {settings.icalUrl ? (
@@ -240,44 +228,41 @@ export function DashboardPage() {
             </div>
           </section>
 
-          <section className="dash-section">
-            <div className="section-head">
-              <div>
-                <h2>Kompakter Tagesplan</h2>
-                <div className="muted">Zeitblöcke als Orientierung, ohne den Tag zu überladen.</div>
-              </div>
-            </div>
-            {(Object.keys(sectionLabels) as (keyof typeof sectionLabels)[]).map((section) => (
-              <div className="card plan-section" key={section} style={{ marginBottom: 14 }}>
-                <h3 className="section-title">{sectionLabels[section]}</h3>
-                <div className="timeline">
-                  {briefing.dayPlan[section].length ? briefing.dayPlan[section].map((item) => (
-                    <div className={`timeline-row ${item.type}`} key={item.id}>
-                      <div className="time">{item.endTime ? `${item.time}-${item.endTime}` : item.time}</div>
-                      <div>
-                        <strong>{icons[item.type]} {item.title}</strong>
-                        {item.type === "calendar" ? <p className="muted small">Kalendertermin</p> : null}
-                      </div>
-                      {item.type === "routine" || item.type === "sleep" ? (
-                        <button aria-label="Routine abhaken" className={`checkbox ${checked.has(item.id) ? "checked" : ""}`} onClick={() => toggleTodo(item.id)} />
-                      ) : null}
-                    </div>
-                  )) : <p className="muted small">Keine Einträge geplant.</p>}
+          {todoSections.length ? (
+            <section className="dash-section">
+              <div className="section-head">
+                <div>
+                  <h2>To-dos</h2>
                 </div>
               </div>
-            ))}
-          </section>
+              {todoSections.map(({ section, items }) => (
+                <div className="card plan-section" key={section} style={{ marginBottom: 14 }}>
+                  <h3 className="section-title">{sectionLabels[section]}</h3>
+                  <div className="timeline">
+                    {items.map((item) => (
+                      <div className={`timeline-row ${item.type}`} key={item.id}>
+                        <div className="time">{item.endTime ? `${item.time}-${item.endTime}` : item.time}</div>
+                        <div>
+                          <strong>{icons[item.type]} {item.title}</strong>
+                        </div>
+                        <button aria-label="To-do abhaken" className={`checkbox ${checked.has(item.id) ? "checked" : ""}`} onClick={() => toggleTodo(item.id)} />
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </section>
+          ) : null}
 
           <section className="dash-section">
             <div className="section-head">
               <div>
                 <h2>News kompakt</h2>
-                <div className="muted">Kurzüberblick mit persönlicher Relevanz.</div>
               </div>
               <Link className="pill active" href="/news">Alle öffnen</Link>
             </div>
             <div className="grid news-grid">
-              {briefing.news.slice(0, 6).map((item, index) => (
+              {briefing.news.slice(0, 5).map((item, index) => (
                 <Link className="card news-card" href="/news" key={item.id}>
                   <div className="kicker">
                     <span className="tag">{item.category}</span>
@@ -300,14 +285,31 @@ export function DashboardPage() {
                 <div className="muted">Kurze Rückmeldung, damit künftige Pläne realistischer werden.</div>
               </div>
             </div>
-            <section className="card stack">
-              <div className="pill-grid">
-                {["Plan war gut", "Teilweise geschafft", "Nicht geschafft"].map((rating) => (
-                  <button key={rating} className={`pill ${briefing.dayRating === rating ? "active" : ""}`} onClick={() => rate(rating)}>{rating}</button>
+            <section className="card progress-card">
+              <div className="rating-shapes" aria-label="Tagesbewertung">
+                {ratingShapes.map((rating) => (
+                  <button
+                    key={rating.label}
+                    className={`rating-shape ${rating.tone} ${briefing.dayRating === rating.label ? "active" : ""}`}
+                    onClick={() => rate(rating.label)}
+                    title={rating.label}
+                    aria-label={rating.label}
+                  >
+                    <span className="shape-mark" aria-hidden="true" />
+                  </button>
                 ))}
               </div>
-              <div className="pill-grid">
-                {data.history.map((item) => <span className="pill" key={item.id}>{item.date.slice(5)} · {item.dayRating ?? "offen"}</span>)}
+              <div className="week-shapes" aria-label="Letzte sieben Tage">
+                {data.history.map((item) => {
+                  const tone = ratingTone(item.dayRating);
+                  const label = `${item.date.slice(5)}: ${item.dayRating ?? "offen"}`;
+                  return (
+                    <div className={`week-dot ${tone}`} key={item.id} title={label} aria-label={label}>
+                      <span className="shape-mark" aria-hidden="true" />
+                      <time dateTime={item.date}>{item.date.slice(5)}</time>
+                    </div>
+                  );
+                })}
               </div>
             </section>
           </section>
@@ -336,32 +338,130 @@ function LoadingGenerationCard({ message = "News werden ausgewählt. Dein Tagesp
   );
 }
 
-function DailyContextModal({ onAnswer, onSkip }: { onAnswer: (goesToUniversity: boolean) => void; onSkip: () => void }) {
+function DailyContextModal({ onAnswer, onSkip }: { onAnswer: (goesToUniversity: boolean, checkIn: ContextCheckIn) => void; onSkip: () => void }) {
+  const [goesToUniversity, setGoesToUniversity] = useState<boolean | null>(null);
+  const [step, setStep] = useState<"context" | "sleep" | "energy">("context");
+  const [sleepHours, setSleepHours] = useState(7);
+  const [energy, setEnergy] = useState<number | null>(null);
+  const sleepEstimate = estimateEnergyFromSleep(sleepHours);
+  const chooseContext = (value: boolean) => {
+    setGoesToUniversity(value);
+    setStep("sleep");
+  };
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="daily-context-title">
       <div className="modal-card">
         <div className="row">
-          <h2 id="daily-context-title">Gehst du heute zur Uni?</h2>
+          <h2 id="daily-context-title">{step === "context" ? "Gehst du heute zur Uni?" : step === "sleep" ? "Wie viele Stunden hast du geschlafen?" : "Wie viel Energie hast du?"}</h2>
           <button className="icon-btn" aria-label="Schließen" onClick={onSkip}>×</button>
         </div>
-        <p className="muted small">Damit DayFrame deinen Tagesplan realistischer aufbauen kann.</p>
-        <button className="primary" onClick={() => onAnswer(true)}>Ja, ich gehe zur Uni</button>
-        <button className="secondary" onClick={() => onAnswer(false)}>Nein, ich bleibe zuhause</button>
-        <button className="pill" onClick={onSkip}>Heute neutral planen</button>
+        {step === "context" ? (
+          <>
+            <p className="muted small">Damit DayFrame deinen Tagesplan realistischer aufbauen kann.</p>
+            <button className="primary" onClick={() => chooseContext(true)}>Uni</button>
+            <button className="secondary" onClick={() => chooseContext(false)}>Zuhause</button>
+            <button className="pill" onClick={onSkip}>Heute neutral planen</button>
+          </>
+        ) : null}
+        {step === "sleep" ? (
+          <>
+            <input className="input sleep-input" type="number" min="0" max="14" step="0.5" value={sleepHours} onChange={(event) => setSleepHours(Number(event.target.value))} autoFocus />
+            <p className="muted small">DayFrame schätzt daraus grob: {sleepEstimate}/10 Erholung.</p>
+            <button className="primary" onClick={() => setStep("energy")}>Weiter</button>
+          </>
+        ) : null}
+        {step === "energy" ? (
+          <>
+            <div className="energy-buttons" role="radiogroup" aria-label="Energie von 1 bis 10">
+              {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
+                <button
+                  key={value}
+                  className={`energy-button ${energy === value ? "active" : ""}`}
+                  role="radio"
+                  aria-checked={energy === value}
+                  onClick={() => setEnergy(value)}
+                >
+                  {value}
+                </button>
+              ))}
+            </div>
+            <button className="primary" disabled={energy === null || goesToUniversity === null} onClick={() => onAnswer(goesToUniversity!, { sleepHours, energy: energy! })}>Speichern</button>
+          </>
+        ) : null}
       </div>
     </div>
   );
 }
 
+function estimateEnergyFromSleep(hours: number) {
+  if (hours >= 7.5 && hours <= 9) return 9;
+  if (hours >= 7 && hours < 7.5) return 8;
+  if (hours >= 6.5 && hours < 7) return 7;
+  if (hours >= 6 && hours < 6.5) return 6;
+  if (hours >= 5 && hours < 6) return 4;
+  if (hours > 9.5) return 6;
+  return 3;
+}
+
+function sleepTimesFromHours(hours: number) {
+  const wakeMinutes = 7 * 60;
+  return {
+    sleepStart: minutesToTime(wakeMinutes - Math.round(hours * 60)),
+    wakeTime: minutesToTime(wakeMinutes),
+  };
+}
+
+function sleepHoursFromTimes(start: string, end: string) {
+  const startMinutes = timeToMinutes(start);
+  const endMinutes = timeToMinutes(end);
+  const duration = endMinutes >= startMinutes ? endMinutes - startMinutes : endMinutes + 24 * 60 - startMinutes;
+  return Math.round((duration / 60) * 10) / 10;
+}
+
+function timeToMinutes(time: string) {
+  const [hours, minutes] = time.split(":").map(Number);
+  return hours * 60 + minutes;
+}
+
+function minutesToTime(value: number) {
+  const minutes = ((value % 1440) + 1440) % 1440;
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function WeatherOverview({ weather, fallbackPlace }: { weather: WeatherSummary; fallbackPlace: string }) {
+  return (
+    <section className="weather-top card">
+      <div className="weather-current">
+        <div>
+          <h2>Wetter</h2>
+          <p className="weather-main">{weather.label}</p>
+          <p className="muted small">{weather.place ?? fallbackPlace}</p>
+        </div>
+        {typeof weather.temperature === "number" ? <strong>{weather.temperature}°</strong> : null}
+      </div>
+      {weather.warning ? <p className="muted small">{weather.warning}</p> : null}
+      {weather.hourly?.length ? (
+        <div className="weather-forecast" aria-label="Wettervorhersage in 2-Stunden-Schritten">
+          {weather.hourly.map((item) => (
+            <div className="forecast-item" key={item.time}>
+              <span>{item.time}</span>
+              <strong>{item.temperature}°</strong>
+              {typeof item.precipitationProbability === "number" ? <small>{item.precipitationProbability}%</small> : null}
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 function PlanningOverview({ plan, onRefresh }: { plan: DailyPlanDetails; onRefresh: () => void }) {
   const visibleBlocks = plan.timeBlocks.filter((block) => block.kind !== "meal" && block.kind !== "buffer").slice(0, 9);
-  const firstLearning = plan.timeBlocks.find((block) => block.kind === "learning");
   return (
     <section className="dash-section">
       <div className="section-head">
         <div>
           <h2>Tagesplan</h2>
-          <div className="muted">Deterministisch geplant: Termine, Pendeln, Deadlines, Schlaf und Energie.</div>
         </div>
         <button className="pill active" onClick={onRefresh}>Neu planen</button>
       </div>
@@ -374,46 +474,18 @@ function PlanningOverview({ plan, onRefresh }: { plan: DailyPlanDetails; onRefre
           </div>
         </div>
       ) : null}
-      <div className="grid three planning-grid">
-        <div className="card focusbox stack">
-          <div className="kicker">
-            <span className="tag">{plan.dayType}</span>
-            <span className="tag">{plan.mode}</span>
-          </div>
-          <h3 className="section-title">Fokus</h3>
-          <p className="quote">{plan.focusHeadline}</p>
-          <p className="muted small">
-            Erster Block: {plan.firstBlock ? `${plan.firstBlock.start}-${plan.firstBlock.end} ${plan.firstBlock.title}` : "noch offen"}
-          </p>
-        </div>
-        <div className="card stack">
-          <h3 className="section-title">Prioritäten</h3>
-          <div className="priority-row">
-            {(["P1", "P2", "P3", "P4"] as const).map((band) => (
-              <span className={`priority-chip ${band.toLowerCase()}`} key={band}>{band} · {plan.priorityCounts[band]}</span>
-            ))}
-          </div>
-          <p className="muted small">{plan.summary}</p>
-        </div>
-        <div className="card stack">
-          <h3 className="section-title">Wind-down</h3>
-          <div className="wind-row"><Moon size={18} /> Lernen bis {plan.learningCutoff}</div>
-          <div className="wind-row"><Moon size={18} /> Bettziel {plan.bedtimeTarget}</div>
-          <p className="muted small">Schlaf: {plan.sleepHours}h · Energie: {plan.energyLevel}/5</p>
-        </div>
-      </div>
-
       <div className="grid two planning-lower">
         <div className="card plan-section">
           <h3 className="section-title">Daily Timeline</h3>
-          <div className="timeline">
+          <div className="timeline vertical-timeline">
             {visibleBlocks.map((block) => (
               <div className={`timeline-row ${block.kind}`} key={block.id}>
+                <span className="timeline-marker" aria-hidden="true" />
                 <div className="time">{block.start}-{block.end}</div>
                 <div>
                   <strong>{block.title}</strong>
                   <p className="muted small">
-                    {block.priorityBand ? `${block.priorityBand} · ` : ""}{block.movable ? "verschiebbar" : "fix"}{block.notes ? ` · ${block.notes}` : ""}
+                    {block.movable ? "verschiebbar" : "fix"}{block.notes ? ` · ${block.notes}` : ""}
                   </p>
                 </div>
               </div>
@@ -431,13 +503,6 @@ function PlanningOverview({ plan, onRefresh }: { plan: DailyPlanDetails; onRefre
               <span className="tag">{deadline.kind}</span>
             </div>
           ))}
-          <div className="deferred-list">
-            {plan.deferredTasks.slice(0, 4).map((task) => (
-              <span className="pill" key={task.id}>{task.priorityBand} · {task.title}</span>
-            ))}
-            {!plan.deferredTasks.length ? <span className="muted small">Nichts Kritisches verschoben.</span> : null}
-          </div>
-          {firstLearning ? <EveningMiniCheckIn block={firstLearning} onDone={onRefresh} /> : null}
         </div>
       </div>
       {plan.weeklyReview ? (
@@ -452,16 +517,30 @@ function PlanningOverview({ plan, onRefresh }: { plan: DailyPlanDetails; onRefre
 
 function MorningCheckInCard({ checkIn, onSaved }: { checkIn: EnergyCheckIn | null; onSaved: () => Promise<void> }) {
   const [sleepHours, setSleepHours] = useState(checkIn?.sleepHours ?? 7);
-  const [energy, setEnergy] = useState(checkIn?.energy ?? 3);
+  const initialSleepTimes = sleepTimesFromHours(checkIn?.sleepHours ?? 7);
+  const [sleepStart, setSleepStart] = useState(initialSleepTimes.sleepStart);
+  const [wakeTime, setWakeTime] = useState(initialSleepTimes.wakeTime);
+  const [energy, setEnergy] = useState(checkIn?.energy ?? 6);
   const [stress, setStress] = useState(checkIn?.stress ?? 3);
   const [manualEmergency, setManualEmergency] = useState(checkIn?.manualEmergency ?? false);
+  const sleepScore = estimateEnergyFromSleep(sleepHours);
 
   useEffect(() => {
-    setSleepHours(checkIn?.sleepHours ?? 7);
-    setEnergy(checkIn?.energy ?? 3);
+    const nextSleepHours = checkIn?.sleepHours ?? 7;
+    const nextSleepTimes = sleepTimesFromHours(nextSleepHours);
+    setSleepHours(nextSleepHours);
+    setSleepStart(nextSleepTimes.sleepStart);
+    setWakeTime(nextSleepTimes.wakeTime);
+    setEnergy(checkIn?.energy ?? 6);
     setStress(checkIn?.stress ?? 3);
     setManualEmergency(checkIn?.manualEmergency ?? false);
   }, [checkIn]);
+
+  function updateSleepTimes(nextStart: string, nextEnd: string) {
+    setSleepStart(nextStart);
+    setWakeTime(nextEnd);
+    setSleepHours(sleepHoursFromTimes(nextStart, nextEnd));
+  }
 
   async function save() {
     await fetch("/api/check-in/morning", {
@@ -477,17 +556,53 @@ function MorningCheckInCard({ checkIn, onSaved }: { checkIn: EnergyCheckIn | nul
         <h3 className="section-title">Morning Check-in</h3>
         <p className="muted small">{checkIn ? "Gespeichert, du kannst jederzeit nachjustieren." : "Kurz genug, damit der Plan trotzdem automatisch funktioniert."}</p>
       </div>
-      <label className="field compact">
-        Schlaf
-        <input className="input" type="number" min="0" max="14" step="0.5" value={sleepHours} onChange={(event) => setSleepHours(Number(event.target.value))} />
-      </label>
+      <div className="field compact sleep-time-field">
+        <span>Schlafzeit</span>
+        <div className="sleep-time-grid">
+          <label>
+            Einschlafen
+            <input className="input" type="time" value={sleepStart} onChange={(event) => updateSleepTimes(event.target.value, wakeTime)} />
+          </label>
+          <label>
+            Aufgewacht
+            <input className="input" type="time" value={wakeTime} onChange={(event) => updateSleepTimes(sleepStart, event.target.value)} />
+          </label>
+        </div>
+        <p className="muted small">ca. {sleepHours.toFixed(1)}h · Schlafscore {sleepScore}/10</p>
+      </div>
       <label className="field compact">
         Energie
-        <input className="input" type="number" min="1" max="5" value={energy} onChange={(event) => setEnergy(Number(event.target.value))} />
+        <div className="energy-buttons compact" role="radiogroup" aria-label="Energie von 1 bis 10">
+          {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
+            <button
+              key={value}
+              className={`energy-button ${energy === value ? "active" : ""}`}
+              type="button"
+              role="radio"
+              aria-checked={energy === value}
+              onClick={() => setEnergy(value)}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
       </label>
       <label className="field compact">
         Stress
-        <input className="input" type="number" min="1" max="5" value={stress} onChange={(event) => setStress(Number(event.target.value))} />
+        <div className="energy-buttons compact" role="radiogroup" aria-label="Stress von 1 bis 10">
+          {Array.from({ length: 10 }, (_, index) => index + 1).map((value) => (
+            <button
+              key={value}
+              className={`energy-button ${stress === value ? "active" : ""}`}
+              type="button"
+              role="radio"
+              aria-checked={stress === value}
+              onClick={() => setStress(value)}
+            >
+              {value}
+            </button>
+          ))}
+        </div>
       </label>
       <label className="toggle-row">
         <input type="checkbox" checked={manualEmergency} onChange={(event) => setManualEmergency(event.target.checked)} />
@@ -495,42 +610,5 @@ function MorningCheckInCard({ checkIn, onSaved }: { checkIn: EnergyCheckIn | nul
       </label>
       <button className="secondary" onClick={save}>Check-in speichern</button>
     </section>
-  );
-}
-
-function EveningMiniCheckIn({ block, onDone }: { block: DailyPlanDetails["timeBlocks"][number]; onDone: () => void }) {
-  async function mark(status: "done" | "open" | "blocked") {
-    if (!block.taskId) return;
-    await fetch("/api/check-in/evening", {
-      method: "POST",
-      body: JSON.stringify({
-        task: {
-          id: block.taskId,
-          title: block.title,
-          kind: "study",
-          estimatedMinutes: 45,
-          minChunkMinutes: 20,
-          requiresDeepFocus: block.notes?.includes("Kern") ?? false,
-          movable: block.movable,
-          priorityScore: block.priorityBand === "P1" ? 8 : 5,
-          priorityBand: block.priorityBand ?? "P2",
-          carryOverCount: 0,
-          blocked: status === "blocked",
-          nextStep: block.notes,
-        },
-        status,
-      }),
-    });
-    onDone();
-  }
-  return (
-    <div className="evening-check">
-      <strong>Evening Check-in</strong>
-      <div className="pill-grid">
-        <button className="pill active" onClick={() => mark("done")}>erledigt</button>
-        <button className="pill" onClick={() => mark("open")}>Carry-over</button>
-        <button className="pill" onClick={() => mark("blocked")}>blockiert</button>
-      </div>
-    </div>
   );
 }

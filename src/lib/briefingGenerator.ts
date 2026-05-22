@@ -5,6 +5,7 @@ import { fetchWeather } from "@/lib/weather";
 import { displayDate, greetingForNow, todayKey } from "@/lib/date";
 import { fallbackBriefing, generateWithAI } from "@/lib/openai";
 import { dailyPlanToSections, generateDailyPlan } from "@/lib/planning";
+import { attachNewsLinks } from "@/lib/newsLinks";
 
 export async function generateBriefing() {
   const settings = getSettings();
@@ -78,7 +79,7 @@ export async function generateBriefing() {
     weather: briefing.weatherSummary,
     dayPlan: dailyPlanToSections(planning),
     planning,
-    news: briefing.news,
+    news: attachNewsLinks(briefing.news, rss.candidates),
     tomorrowPreview: [
       planning.emergencyPlan ? "Notfallplan ist vorbereitet und kann sofort übernommen werden." : "Plan ist bereits reduziert.",
       `Lern-Cut-off: ${planning.learningCutoff}, Bettziel: ${planning.bedtimeTarget}.`,

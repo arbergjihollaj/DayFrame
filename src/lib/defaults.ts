@@ -1,7 +1,7 @@
 import type { Settings } from "@/lib/types";
 
 export const newsCategories = [
-  "KI / OpenAI / Tech",
+  "AI",
   "Deutschland",
   "Kosovo / Balkan",
   "Studium / Karriere",
@@ -14,6 +14,7 @@ export const defaultSettings: Settings = {
   theme: "dark",
   accentColor: "#78a6ff",
   routineLevel: "leicht",
+  trainingDifficulty: "normal",
   newsCategories,
   generationTime: "06:30",
   sleepTime: "23:30",
@@ -22,9 +23,9 @@ export const defaultSettings: Settings = {
 };
 
 export const defaultNewsSources = [
-  { name: "OpenAI Blog", url: "https://openai.com/news/rss.xml", category: "KI / OpenAI / Tech" },
-  { name: "Heise", url: "https://www.heise.de/rss/heise-atom.xml", category: "KI / OpenAI / Tech" },
-  { name: "t3n", url: "https://t3n.de/rss.xml", category: "KI / OpenAI / Tech" },
+  { name: "OpenAI Blog", url: "https://openai.com/news/rss.xml", category: "AI" },
+  { name: "Heise", url: "https://www.heise.de/rss/heise-atom.xml", category: "AI" },
+  { name: "t3n", url: "https://t3n.de/rss.xml", category: "AI" },
   { name: "Tagesschau Innenpolitik", url: "https://www.tagesschau.de/inland/innenpolitik/index~rss2.xml", category: "Deutschland" },
   { name: "Deutschlandfunk Politik", url: "https://www.deutschlandfunk.de/politikportal-100.rss", category: "Deutschland" },
   { name: "ZEIT Politik", url: "https://newsfeed.zeit.de/politik/index", category: "Deutschland" },

@@ -9,6 +9,11 @@ export const generatedBriefingSchema = z.object({
     place: z.string().optional(),
     temperature: z.number().optional(),
     warning: z.string().optional(),
+    hourly: z.array(z.object({
+      time: z.string(),
+      temperature: z.number(),
+      precipitationProbability: z.number().optional(),
+    })).optional(),
   }),
   dayPlan: z.object({
     morning: z.array(zPlanItem()),
@@ -59,6 +64,19 @@ const briefingJsonSchema = {
         place: { type: "string" },
         temperature: { type: "number" },
         warning: { type: "string" },
+        hourly: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["time", "temperature"],
+            properties: {
+              time: { type: "string" },
+              temperature: { type: "number" },
+              precipitationProbability: { type: "number" },
+            },
+          },
+        },
       },
     },
     dayPlan: {
@@ -163,9 +181,11 @@ Schlaf:
 
 News:
 - Waehle aus newsCandidates nur wirklich relevante Artikel.
-- Ruhiger Tag ca. 3 News, normal 4-6, wichtige Lage bis 8.
+- Ruhiger Tag ca. 5 News, normal 8-12, wichtige Lage bis 15.
+- Gib maximal 15 News zurueck und sortiere sie nach Wichtigkeit.
 - Bevorzuge aktuelle Artikel.
 - Deutschland-News sollen bevorzugt Politik sein: Bundesregierung, Bundestag, Parteien, Wahlen, Gesetzgebung, Sozialstaat, Wirtschaftspolitik, Sicherheit und EU-Bezug.
+- Die id jeder ausgewaehlten News muss exakt die id des passenden newsCandidates-Eintrags sein.
 - Jede News braucht summary und relevance. Relevance erklaert, warum es fuer Arber relevant ist.
 - Keine Original-Links ausgeben.
 
@@ -248,7 +268,7 @@ export function fallbackBriefing(input: {
   weather: WeatherSummary;
   todayEvents: { title: string; startTime: string; endTime: string }[];
   topics: { subjectName?: string; name: string; confidence: number }[];
-  newsCandidates: { title: string; source: string; category: string; contentSnippet?: string }[];
+  newsCandidates: { id: string; title: string; source: string; category: string; contentSnippet?: string }[];
   weekLoad: WeekLoadItem[];
   errors: string[];
   routineLevel: string;
@@ -308,8 +328,8 @@ export function fallbackBriefing(input: {
     ],
   };
 
-  const news: NewsItem[] = input.newsCandidates.slice(0, 5).map((item, index) => ({
-    id: `news-${index}`,
+  const news: NewsItem[] = input.newsCandidates.slice(0, 15).map((item, index) => ({
+    id: item.id || `news-${index}`,
     title: item.title,
     source: item.source,
     summary: item.contentSnippet?.slice(0, 160) || "Kurzer Artikel aus deiner RSS-Auswahl.",

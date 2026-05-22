@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Home, Settings } from "lucide-react";
+import { Dumbbell, Home, Newspaper, Settings } from "lucide-react";
 import { useEffect } from "react";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
@@ -20,8 +20,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [pathname]);
 
   const items = [
-    { href: "/", label: "Dashboard", icon: Home },
-    { href: "/learning", label: "Lernen", icon: BookOpen },
+    { href: "/", label: "Home", icon: Home },
+    { href: "/news", label: "News", icon: Newspaper },
+    { href: "/training", label: "Training", icon: Dumbbell },
     { href: "/settings", label: "Settings", icon: Settings },
   ];
 
@@ -31,7 +32,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <nav className="bottom-nav" aria-label="Hauptnavigation">
         {items.map((item) => {
           const Icon = item.icon;
-          const active = item.href === "/" ? pathname === "/" || pathname === "/news" : pathname.startsWith(item.href);
+          const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
           return (
             <Link key={item.href} className={`nav-item ${active ? "active" : ""}`} href={item.href}>
               <Icon size={21} />

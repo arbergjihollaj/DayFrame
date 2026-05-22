@@ -228,7 +228,7 @@ export function dailyPlanToSections(plan: DailyPlanDetails): DayPlan {
       type: block.kind === "commute" ? "calendar" : block.kind,
       time: block.start,
       endTime: block.end,
-      title: block.priorityBand ? `${block.priorityBand} · ${block.title}` : block.title,
+      title: block.title,
     });
   });
   return empty;
@@ -275,7 +275,7 @@ function normalizeCheckIn(date: string, checkIn?: Partial<EnergyCheckIn> | null)
     id: `check-${date}`,
     date,
     sleepHours: checkIn?.sleepHours ?? 7,
-    energy: checkIn?.energy ?? 3,
+    energy: checkIn?.energy ?? 6,
     stress: checkIn?.stress ?? 3,
     soreness: checkIn?.soreness ?? 2,
     unexpectedEvents: checkIn?.unexpectedEvents,
@@ -304,12 +304,12 @@ function addCommutes(date: string, blocks: ScheduleBlock[]) {
 
 function classifyDay(weekday: number, fixedMinutes: number, checkIn: EnergyCheckIn): DayType {
   if (weekday === 4 || fixedMinutes >= 420 || checkIn.sleepHours < 6.5) return "heavy";
-  if (fixedMinutes >= 150 || checkIn.energy <= 3) return "medium";
+  if (fixedMinutes >= 150 || checkIn.energy <= 4) return "medium";
   return "light";
 }
 
 function isEmergencyDay(checkIn: EnergyCheckIn, fixedMinutes: number, weekday: number) {
-  if (checkIn.manualEmergency || checkIn.sleepHours < 6 || checkIn.energy <= 2) return true;
+  if (checkIn.manualEmergency || checkIn.sleepHours < 6 || checkIn.energy <= 3) return true;
   const soft = [checkIn.stress >= 4, fixedMinutes >= 480, weekday === 2 && checkIn.sleepHours < 6.5].filter(Boolean).length;
   return soft >= 2;
 }
@@ -445,7 +445,7 @@ function scoreTask(
   const noTouchGapBoost = course && ["math2", "os", "prog2"].includes(course.id) ? 1.25 : course?.id === "prog1" ? 0.75 : 0;
   const lectureFollowUpBoost = task.kind === "review" ? 1 : 0;
   const blockerBoost = task.blocked ? 1 : 0;
-  const energyMismatchPenalty = task.requiresDeepFocus && checkIn.energy <= 3 ? 1.25 : 0;
+  const energyMismatchPenalty = task.requiresDeepFocus && checkIn.energy <= 4 ? 1.25 : 0;
   const overloadPenalty = dayType === "heavy" && task.requiresDeepFocus ? 1 : dayType === "emergency" ? 2 : 0;
   let score =
     deadlineUrgency +
@@ -525,7 +525,7 @@ function chooseWorkout(date: string, windows: Window[], dayType: DayType, checkI
   const weekday = weekdayIndex(date);
   const hardDeadlineCrash = tasks.some((task) => task.priorityBand === "P1" && task.requiresDeepFocus);
   if (dayType === "emergency") return minimalWorkout(date, "Minimalroutine", 10, windows);
-  if (weekday === 4 || checkIn.energy < 3) return minimalWorkout(date, "Mobility/Cardio light", 25, windows);
+  if (weekday === 4 || checkIn.energy < 5) return minimalWorkout(date, "Mobility/Cardio light", 25, windows);
   if (![2, 5, 6, 0].includes(weekday) || hardDeadlineCrash) return null;
   const plan = seedWorkoutPlans[weekday === 5 ? 1 : 0];
   const slot = findSlot(windows, plan.durationMinutes, false);
@@ -554,7 +554,6 @@ function addEssentials(date: string, scheduled: TimeBlock[], fixed: ScheduleBloc
     { id: `tb-${date}-lunch`, dailyPlanId: `plan-${date}`, start: "13:00", end: "13:35", kind: "meal", title: "Mittagessen", movable: true },
     { id: `tb-${date}-dinner`, dailyPlanId: `plan-${date}`, start: "19:20", end: "19:55", kind: "meal", title: "Abendessen", movable: true },
     { id: `tb-${date}-cutoff`, dailyPlanId: `plan-${date}`, start: cutoff, end: addMinutes(cutoff, 15), kind: "routine", title: "Lernen beenden", priorityBand: "P2", movable: false },
-    { id: `tb-${date}-winddown`, dailyPlanId: `plan-${date}`, start: addMinutes(bedtime, -35), end: bedtime, kind: "sleep", title: "Abendroutine und runterfahren", priorityBand: "P2", movable: false },
   ];
   return mergeTimeBlocks([...fixedBlocks, ...scheduled, ...essentials]);
 }
@@ -575,7 +574,7 @@ function buildEmergencyPlan(date: string, fixed: ScheduleBlock[], tasks: Plannin
     learningCutoff: cutoff,
     sleepHours: checkIn.sleepHours,
     energyLevel: checkIn.energy,
-    summary: "Fixtermine bleiben, P3/P4 und zusätzlicher Sport fallen raus.",
+    summary: "Fixtermine bleiben, zusätzlich Verschiebbares fällt raus.",
     firstBlock: blocks[0],
     timeBlocks: blocks,
     deferredTasks: scheduled.deferredTasks,
@@ -611,7 +610,7 @@ function findSlot(windows: Window[], duration: number, deep: boolean, earliest?:
 function chooseDuration(task: PlanningTask, dayType: DayType, checkIn: EnergyCheckIn) {
   if (dayType === "emergency") return Math.min(task.estimatedMinutes, task.requiresDeepFocus ? 60 : 30);
   if (dayType === "heavy") return Math.min(task.estimatedMinutes, task.requiresDeepFocus ? 75 : 35);
-  if (checkIn.energy <= 3) return Math.max(task.minChunkMinutes, Math.min(task.estimatedMinutes, 75));
+  if (checkIn.energy <= 4) return Math.max(task.minChunkMinutes, Math.min(task.estimatedMinutes, 75));
   return task.estimatedMinutes;
 }
 
