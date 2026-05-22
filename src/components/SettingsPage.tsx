@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bot, Clock3, Palette, Plus, Rss, Trash2 } from "lucide-react";
+import { Bot, Clock3, Palette, Plus, RotateCcw, Rss, Trash2 } from "lucide-react";
 import { newsCategories } from "@/lib/defaults";
 import type { Settings } from "@/lib/types";
 
@@ -84,6 +84,13 @@ export function SettingsPage() {
   async function deleteSource(id: number) {
     await fetch("/api/settings", { method: "POST", body: JSON.stringify({ deleteNewsSourceId: id }) });
     await load();
+  }
+
+  async function resetDailyContextQuestion() {
+    if (!window.confirm("Heute wieder nach Uni/Zuhause fragen? Dein bestehender Plan bleibt bis zur neuen Antwort erhalten.")) return;
+    await fetch("/api/daily-context", { method: "POST", body: JSON.stringify({ resetToday: true }) });
+    setSaved("Die heutige Uni-Frage wird auf Home wieder angezeigt.");
+    setTimeout(() => setSaved(""), 2600);
   }
 
   if (!settings) return <p className="muted">Einstellungen werden geladen.</p>;
@@ -262,6 +269,24 @@ export function SettingsPage() {
               <option value="ambitioniert">Ambitioniert</option>
             </select>
           </div>
+          <div className="field">
+            <label>Training-Schwierigkeit</label>
+            <div className="pill-grid">
+              {([
+                { value: "leicht", label: "Leicht" },
+                { value: "normal", label: "Normal" },
+                { value: "anspruchsvoll", label: "Anspruchsvoll" },
+              ] as const).map((option) => (
+                <button
+                  className={`pill ${settings.trainingDifficulty === option.value ? "active" : ""}`}
+                  key={option.value}
+                  onClick={() => setSettings({ ...settings, trainingDifficulty: option.value })}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="row">
             <div className="field" style={{ flex: 1 }}>
               <label>Generierung</label>
@@ -277,6 +302,7 @@ export function SettingsPage() {
             <input className="input" type="time" value={settings.sleepTime} onChange={(event) => setSettings({ ...settings, sleepTime: event.target.value })} />
           </div>
           <button className="primary" onClick={() => save(settings, "Planung gespeichert.")}>Planung speichern</button>
+          <button className="secondary" onClick={resetDailyContextQuestion}><RotateCcw size={16} /> Uni-Frage erneut anzeigen</button>
         </section>
       ) : null}
     </div>

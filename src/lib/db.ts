@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { defaultNewsSources, defaultSettings } from "@/lib/defaults";
-import type { Briefing, DailyContext, DailyPlanDetails, EnergyCheckIn, PlanningTask, Settings, Subject, Topic } from "@/lib/types";
+import type { Briefing, DailyContext, DailyPlanDetails, DailyTrainingPlan, EnergyCheckIn, PlanningTask, Settings, Subject, Topic } from "@/lib/types";
 
 const isNextProductionBuild = process.env.NEXT_PHASE === "phase-production-build" || process.env.npm_lifecycle_event === "build";
 const dbPath = isNextProductionBuild
@@ -115,11 +115,30 @@ function runMigrations() {
       updatedAt TEXT NOT NULL,
       UNIQUE(date, taskId)
     );
+    CREATE TABLE IF NOT EXISTS training_plans (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL UNIQUE,
+      generatedAt TEXT NOT NULL,
+      planJson TEXT NOT NULL,
+      source TEXT NOT NULL,
+      difficulty TEXT NOT NULL DEFAULT 'normal',
+      errorMessage TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    );
   `);
   const columns = db.prepare("PRAGMA table_info(briefings)").all() as { name: string }[];
   if (!columns.some((column) => column.name === "planningJson")) {
     try {
       db.exec("ALTER TABLE briefings ADD COLUMN planningJson TEXT");
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes("duplicate column")) throw error;
+    }
+  }
+  const trainingColumns = db.prepare("PRAGMA table_info(training_plans)").all() as { name: string }[];
+  if (!trainingColumns.some((column) => column.name === "difficulty")) {
+    try {
+      db.exec("ALTER TABLE training_plans ADD COLUMN difficulty TEXT NOT NULL DEFAULT 'normal'");
     } catch (error) {
       if (!(error instanceof Error) || !error.message.includes("duplicate column")) throw error;
     }
@@ -153,6 +172,10 @@ function seedDefaults() {
         'https://newsfeed.zeit.de/index'
       )
   `).run(now);
+
+  db.prepare("UPDATE news_sources SET category = 'AI', updatedAt = ? WHERE category = 'KI / OpenAI / Tech'").run(now);
+  db.prepare("UPDATE settings SET value = replace(value, 'KI / OpenAI / Tech', 'AI'), updatedAt = ? WHERE key = 'newsCategories'").run(now);
+  db.prepare("UPDATE briefings SET newsJson = replace(newsJson, 'KI / OpenAI / Tech', 'AI'), updatedAt = ? WHERE newsJson LIKE '%KI / OpenAI / Tech%'").run(now);
 }
 
 runMigrations();
@@ -342,6 +365,10 @@ export function saveDailyContext(date: string, goesToUniversity: boolean): Daily
   return saved;
 }
 
+export function deleteDailyContext(date: string) {
+  db.prepare("DELETE FROM daily_context WHERE date=?").run(date);
+}
+
 export function getEnergyCheckIn(date: string): EnergyCheckIn | null {
   const row = db.prepare("SELECT * FROM energy_checkins WHERE date=?").get(date) as
     | {
@@ -404,38 +431,6 @@ export function getCarryOverTasks(date: string): PlanningTask[] {
   return rows.map((row) => JSON.parse(row.taskJson) as PlanningTask);
 }
 
-export function saveEveningTaskStatus(input: {
-  date: string;
-  task: PlanningTask;
-  status: "open" | "done" | "blocked";
-  progressPercent?: number;
-  nextStep?: string;
-  actualBedtime?: string;
-}) {
-  const now = new Date().toISOString();
-  db.prepare(`
-    INSERT INTO planning_task_status (date, taskId, taskJson, status, progressPercent, nextStep, actualBedtime, createdAt, updatedAt)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ON CONFLICT(date, taskId) DO UPDATE SET
-      taskJson=excluded.taskJson,
-      status=excluded.status,
-      progressPercent=excluded.progressPercent,
-      nextStep=excluded.nextStep,
-      actualBedtime=excluded.actualBedtime,
-      updatedAt=excluded.updatedAt
-  `).run(
-    input.date,
-    input.task.id,
-    JSON.stringify({ ...input.task, progressPercent: input.progressPercent ?? input.task.progressPercent, nextStep: input.nextStep ?? input.task.nextStep }),
-    input.status,
-    input.progressPercent ?? null,
-    input.nextStep ?? null,
-    input.actualBedtime ?? null,
-    now,
-    now,
-  );
-}
-
 export function getSubjects(): Subject[] {
   return db.prepare("SELECT id, name FROM subjects ORDER BY name").all() as Subject[];
 }
@@ -482,4 +477,35 @@ export function updateTopicConfidence(id: number, confidence: number) {
 
 export function deleteTopic(id: number) {
   db.prepare("DELETE FROM topics WHERE id=?").run(id);
+}
+
+export function getTrainingPlanByDate(date: string): { date: string; generatedAt: string; plan: DailyTrainingPlan; source: string; difficulty: string; errorMessage: string | null } | null {
+  const row = db.prepare("SELECT date, generatedAt, planJson, source, difficulty, errorMessage FROM training_plans WHERE date=?").get(date) as
+    | { date: string; generatedAt: string; planJson: string; source: string; difficulty: string; errorMessage: string | null }
+    | undefined;
+  if (!row) return null;
+  return {
+    date: row.date,
+    generatedAt: row.generatedAt,
+    plan: JSON.parse(row.planJson) as DailyTrainingPlan,
+    source: row.source,
+    difficulty: row.difficulty,
+    errorMessage: row.errorMessage,
+  };
+}
+
+export function saveTrainingPlan(date: string, plan: DailyTrainingPlan, source: "gemini" | "fallback", difficulty: string, errorMessage?: string | null) {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO training_plans (date, generatedAt, planJson, source, difficulty, errorMessage, createdAt, updatedAt)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(date) DO UPDATE SET
+      generatedAt=excluded.generatedAt,
+      planJson=excluded.planJson,
+      source=excluded.source,
+      difficulty=excluded.difficulty,
+      errorMessage=excluded.errorMessage,
+      updatedAt=excluded.updatedAt
+  `).run(date, now, JSON.stringify(plan), source, difficulty, errorMessage ?? null, now, now);
+  return getTrainingPlanByDate(date);
 }

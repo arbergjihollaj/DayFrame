@@ -1,9 +1,11 @@
 import Parser from "rss-parser";
+import crypto from "node:crypto";
 import { getNewsSources } from "@/lib/db";
 
 const parser = new Parser();
 
 export type RssCandidate = {
+  id: string;
   title: string;
   source: string;
   category: string;
@@ -12,13 +14,18 @@ export type RssCandidate = {
   contentSnippet?: string;
 };
 
+function newsCandidateId(source: string, title: string, link?: string) {
+  return `news-${crypto.createHash("sha1").update(`${source}|${title}|${link ?? ""}`).digest("hex").slice(0, 12)}`;
+}
+
 export async function fetchRssCandidates(enabledCategories: string[]) {
+  const normalizedCategories = enabledCategories.map(normalizeCategory);
   const sources = (getNewsSources() as {
     name: string;
     url: string;
     category: string;
     enabled: number;
-  }[]).filter((source) => source.enabled && enabledCategories.includes(source.category));
+  }[]).filter((source) => source.enabled && normalizedCategories.includes(normalizeCategory(source.category)));
 
   const errors: string[] = [];
   const candidates: RssCandidate[] = [];
@@ -31,9 +38,10 @@ export async function fetchRssCandidates(enabledCategories: string[]) {
           const published = item.isoDate ? new Date(item.isoDate).getTime() : Date.now();
           if (published >= cutoff) {
             candidates.push({
+              id: newsCandidateId(source.name, item.title ?? "Ohne Titel", item.link),
               title: item.title ?? "Ohne Titel",
               source: source.name,
-              category: source.category,
+              category: normalizeCategory(source.category),
               link: item.link,
               isoDate: item.isoDate,
               contentSnippet: item.contentSnippet?.slice(0, 500),
@@ -52,4 +60,8 @@ export async function fetchRssCandidates(enabledCategories: string[]) {
       .slice(0, 40),
     errors,
   };
+}
+
+function normalizeCategory(category: string) {
+  return category === "KI / OpenAI / Tech" ? "AI" : category;
 }

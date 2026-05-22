@@ -14,8 +14,8 @@ export async function POST(request: Request) {
   const checkIn = saveEnergyCheckIn({
     date: todayKey(),
     sleepHours: clamp(body.sleepHours ?? 7, 0, 14),
-    energy: clamp(body.energy ?? 3, 1, 5),
-    stress: clamp(body.stress ?? 3, 1, 5),
+    energy: clamp(body.energy ?? 6, 1, 10),
+    stress: clamp(body.stress ?? 3, 1, 10),
     soreness: clamp(body.soreness ?? 2, 1, 5),
     unexpectedEvents: body.unexpectedEvents,
     manualEmergency: Boolean(body.manualEmergency),

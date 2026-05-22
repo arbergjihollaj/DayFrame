@@ -1,5 +1,6 @@
 export type ThemeMode = "dark" | "light";
 export type RoutineLevel = "leicht" | "normal" | "ambitioniert";
+export type TrainingDifficulty = "leicht" | "normal" | "anspruchsvoll";
 export type DaySectionKey = "morning" | "midday" | "afternoon" | "evening" | "night";
 export type PlanItemType = "calendar" | "learning" | "sport" | "routine" | "sleep";
 export type CourseDifficulty = "hard" | "medium" | "light";
@@ -13,6 +14,7 @@ export type Settings = {
   theme: ThemeMode;
   accentColor: string;
   routineLevel: RoutineLevel;
+  trainingDifficulty: TrainingDifficulty;
   newsCategories: string[];
   generationTime: string;
   sleepTime: string;
@@ -25,6 +27,11 @@ export type WeatherSummary = {
   temperature?: number;
   label: string;
   warning?: string;
+  hourly?: {
+    time: string;
+    temperature: number;
+    precipitationProbability?: number;
+  }[];
 };
 
 export type CalendarEvent = {
@@ -211,6 +218,7 @@ export type NewsItem = {
   summary: string;
   relevance: string;
   category: string;
+  url?: string;
 };
 
 export type WeekLoadItem = {
@@ -257,4 +265,31 @@ export type Topic = {
   lastStudiedAt: string | null;
   examDate: string | null;
   deadlineDate: string | null;
+};
+
+export type WorkoutStep = {
+  name: string;
+  duration: string;
+  instructions: string;
+};
+
+export type TrainingExercise = {
+  name: string;
+  muscles: string[];
+  sets: number;
+  reps: string | null;
+  duration: string | null;
+  restSeconds: number;
+  difficulty: "Leicht" | "Mittel" | "Anspruchsvoll";
+  instructions: string;
+  techniqueTip?: string | null;
+};
+
+export type DailyTrainingPlan = {
+  title: string;
+  durationMinutes: number;
+  focusMuscles: string[];
+  warmup: WorkoutStep[];
+  exercises: TrainingExercise[];
+  cooldown: WorkoutStep[];
 };
