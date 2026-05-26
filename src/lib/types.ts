@@ -288,6 +288,8 @@ export type TrainingExercise = {
 export type DailyTrainingPlan = {
   title: string;
   durationMinutes: number;
+  intensityPercent?: number;
+  intensityLabel?: string;
   focusMuscles: string[];
   warmup: WorkoutStep[];
   exercises: TrainingExercise[];

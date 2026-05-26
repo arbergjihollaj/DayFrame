@@ -3,8 +3,6 @@ import path from "node:path";
 
 const envPath = path.join(process.cwd(), ".env");
 
-export type AiProvider = "openai" | "gemini";
-
 export function readEnvFile() {
   if (!fs.existsSync(envPath)) return {};
   return Object.fromEntries(
@@ -28,14 +26,9 @@ export function maskSecret(value?: string) {
 
 export function getAiEnvironment() {
   const env = { ...readEnvFile(), ...process.env };
-  const provider = (env.AI_PROVIDER === "gemini" ? "gemini" : "openai") as AiProvider;
   return {
-    provider,
-    openaiKeySet: Boolean(env.OPENAI_API_KEY),
     geminiKeySet: Boolean(env.GEMINI_API_KEY),
-    openaiKeyMasked: maskSecret(env.OPENAI_API_KEY),
     geminiKeyMasked: maskSecret(env.GEMINI_API_KEY),
-    openaiModel: env.OPENAI_MODEL || "gpt-5-mini",
     geminiModel: env.GEMINI_MODEL || "gemini-2.5-flash",
   };
 }
@@ -43,10 +36,10 @@ export function getAiEnvironment() {
 export function updateEnvFile(updates: Record<string, string>) {
   const current = readEnvFile();
   const next = { ...current, ...updates };
+  delete next.AI_PROVIDER;
+  delete next.OPENAI_API_KEY;
+  delete next.OPENAI_MODEL;
   const preferredOrder = [
-    "AI_PROVIDER",
-    "OPENAI_API_KEY",
-    "OPENAI_MODEL",
     "GEMINI_API_KEY",
     "GEMINI_MODEL",
     "APP_BASE_URL",

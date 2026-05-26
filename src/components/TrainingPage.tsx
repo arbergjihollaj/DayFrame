@@ -1,9 +1,7 @@
 "use client";
 
-import Body from "@mjcdev/react-body-highlighter";
-import { AlertTriangle, Clock3, Dumbbell, RefreshCw, Sparkles } from "lucide-react";
+import { AlertTriangle, Check, CheckCircle2, Dumbbell, PlayCircle, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { muscleGroupsToBodyData } from "@/lib/muscles";
 import type { DailyTrainingPlan, TrainingExercise, WorkoutStep } from "@/lib/types";
 
 type TrainingPayload = {
@@ -15,10 +13,13 @@ type TrainingPayload = {
   retryAfterSeconds?: number;
 };
 
+type CompletedSets = Record<string, number[]>;
+
 export function TrainingPage() {
   const [training, setTraining] = useState<TrainingPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [completedSets, setCompletedSets] = useState<CompletedSets>({});
   const [error, setError] = useState("");
 
   async function load(method: "GET" | "POST" = "GET") {
@@ -34,6 +35,7 @@ export function TrainingPage() {
       const data = (await response.json()) as { training: TrainingPayload | null };
       if (!data.training) throw new Error("Training konnte nicht vorbereitet werden.");
       setTraining(data.training);
+      setCompletedSets(loadCompletedSets(data.training));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Training konnte nicht geladen werden.");
     } finally {
@@ -48,6 +50,36 @@ export function TrainingPage() {
 
   const plan = training?.plan;
   const generatedAt = training ? new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" }).format(new Date(training.generatedAt)) : "";
+  const stats = useMemo(() => (plan ? getTrainingStats(plan) : null), [plan]);
+
+  useEffect(() => {
+    if (!training) return;
+    localStorage.setItem(completedSetsStorageKey(training), JSON.stringify(completedSets));
+  }, [completedSets, training]);
+
+  function toggleSet(exerciseKey: string, setIndex: number) {
+    setCompletedSets((current) => {
+      const done = new Set(current[exerciseKey] ?? []);
+      if (done.has(setIndex)) {
+        done.delete(setIndex);
+      } else {
+        done.add(setIndex);
+      }
+      return { ...current, [exerciseKey]: Array.from(done).sort((a, b) => a - b) };
+    });
+  }
+
+  function completeNextSet(exerciseKey: string, setCount: number) {
+    setCompletedSets((current) => {
+      const done = new Set(current[exerciseKey] ?? []);
+      const nextOpen = Array.from({ length: setCount }, (_, index) => index).find((index) => !done.has(index));
+      if (nextOpen === undefined) {
+        return { ...current, [exerciseKey]: [] };
+      }
+      done.add(nextOpen);
+      return { ...current, [exerciseKey]: Array.from(done).sort((a, b) => a - b) };
+    });
+  }
 
   if (loading) return <TrainingLoading />;
 
@@ -87,58 +119,50 @@ export function TrainingPage() {
       ) : null}
 
       {plan ? (
-        <>
-          <section className="training-summary card">
+        <section className="training-tracker">
+          <div className="tracker-label">Recent Stats</div>
+          <div className="tracker-stats">
+            <StatCard label="Volume" value={stats?.volume ?? 0} suffix=" sets" tone="violet" />
+            <StatCard label="Duration" value={stats?.duration ?? 0} suffix=" min" tone="green" />
+            <StatCard label="Intensity" value={stats?.intensity ?? 0} suffix="%" tone="amber" />
+          </div>
+
+          <div className="tracker-section-head">
+            <span>Warm-up</span>
+            <strong>Completed</strong>
+          </div>
+          <div className="warmup-complete-card">
+            <div className="complete-icon"><Check size={20} /></div>
             <div>
-              <span className="muted small">Heute</span>
-              <h2>{plan.title}</h2>
+              <h2>{plan.warmup[0]?.name ?? "Warm-up"}</h2>
+              <p>{plan.warmup[0]?.duration ?? "5 Minuten"} · Mobility Focus</p>
             </div>
-            <div className="training-meta-grid">
-              <div className="training-meta">
-                <Clock3 size={18} />
-                <strong>{plan.durationMinutes} Min.</strong>
-              </div>
-              <div className="training-meta">
-                <Sparkles size={18} />
-                <strong>{training.source === "gemini" ? "Gemini" : "Fallback"}</strong>
-              </div>
-            </div>
-            <div className="pill-grid">
-              {plan.focusMuscles.map((muscle) => (
-                <span className="pill active" key={muscle}>{muscle}</span>
-              ))}
-            </div>
-            {generatedAt ? <p className="muted small">Aktualisiert um {generatedAt}</p> : null}
-          </section>
+          </div>
 
-          <section className="card muscle-card">
-            <div className="section-head compact">
-              <div>
-                <h2>Muskel-Fokus</h2>
-                <div className="muted">Markiert sind die Muskelgruppen des heutigen Trainings.</div>
-              </div>
-            </div>
-            <MuscleMap focusMuscles={plan.focusMuscles} />
-          </section>
+          <div className="tracker-section-head">
+            <span>Current Exercises</span>
+            {generatedAt ? <small>Updated {generatedAt}</small> : null}
+          </div>
 
-          <TrainingStepSection title="Warm-up" steps={plan.warmup} />
+          <div className="tracker-exercises">
+            {plan.exercises.map((exercise, index) => (
+              <ExerciseCard
+                completedSetIndexes={completedSets[exerciseKey(exercise, index)] ?? []}
+                exercise={exercise}
+                index={index}
+                key={`${exercise.name}-${exercise.sets}-${exercise.restSeconds}`}
+                onCompleteNextSet={completeNextSet}
+                onToggleSet={toggleSet}
+              />
+            ))}
+          </div>
 
-          <section className="training-section">
-            <div className="section-head compact">
-              <div>
-                <h2>Übungen</h2>
-                <div className="muted">{plan.exercises.length} Blöcke für heute</div>
-              </div>
-            </div>
-            <div className="exercise-grid">
-              {plan.exercises.map((exercise) => (
-                <ExerciseCard exercise={exercise} key={`${exercise.name}-${exercise.sets}-${exercise.restSeconds}`} />
-              ))}
-            </div>
-          </section>
-
-          <TrainingStepSection title="Cooldown" steps={plan.cooldown} />
-        </>
+          <div className="tracker-section-head">
+            <span>Cooldown</span>
+            <small>{training.source === "gemini" ? "Gemini plan" : "Fallback plan"}</small>
+          </div>
+          <TrainingStepSection steps={plan.cooldown} />
+        </section>
       ) : null}
     </div>
   );
@@ -156,35 +180,55 @@ function TrainingLoading() {
   );
 }
 
-function TrainingStepSection({ title, steps }: { title: string; steps: WorkoutStep[] }) {
+function StatCard({ label, value, suffix, tone }: { label: string; value: string | number; suffix: string; tone: "violet" | "green" | "amber" }) {
   return (
-    <section className="training-section">
-      <div className="section-head compact">
-        <div>
-          <h2>{title}</h2>
-        </div>
-      </div>
-      <div className="training-step-list">
-        {steps.map((step) => (
-          <article className="card training-step" key={`${title}-${step.name}`}>
-            <div className="training-step-icon"><Clock3 size={17} /></div>
-            <div>
-              <h3>{step.name}</h3>
-              <p className="muted small">{step.duration}</p>
-              <p>{step.instructions}</p>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
+    <article className="tracker-stat-card">
+      <span>{label}</span>
+      <strong className={`stat-${tone}`}>{value}<small>{suffix}</small></strong>
+    </article>
   );
 }
 
-function ExerciseCard({ exercise }: { exercise: TrainingExercise }) {
-  const effort = exercise.duration ?? `${exercise.sets} Sätze × ${exercise.reps ?? "sauber"}`;
+function TrainingStepSection({ steps }: { steps: WorkoutStep[] }) {
   return (
-    <article className="card exercise-card">
-      <div className="exercise-card-head">
+    <div className="cooldown-list">
+      {steps.map((step) => (
+        <article className="cooldown-row" key={step.name}>
+          <CheckCircle2 size={18} />
+          <div>
+            <strong>{step.name}</strong>
+            <p>{step.duration} · {step.instructions}</p>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
+function ExerciseCard({
+  completedSetIndexes,
+  exercise,
+  index,
+  onCompleteNextSet,
+  onToggleSet,
+}: {
+  completedSetIndexes: number[];
+  exercise: TrainingExercise;
+  index: number;
+  onCompleteNextSet: (exerciseKey: string, setCount: number) => void;
+  onToggleSet: (exerciseKey: string, setIndex: number) => void;
+}) {
+  const reps = exercise.reps ?? exercise.duration ?? "sauber";
+  const load = exercise.duration ? "Timed" : exercise.muscles.includes("Brust") || exercise.muscles.includes("Rücken") ? "Body" : "BW";
+  const setCount = Math.max(1, exercise.sets || 1);
+  const key = exerciseKey(exercise, index);
+  const completed = new Set(completedSetIndexes);
+  const isFinished = completed.size >= setCount;
+
+  return (
+    <article className="tracker-exercise-card">
+      <div className="tracker-exercise-head">
+        <div className="exercise-number">{index + 1}</div>
         <div>
           <h3>{exercise.name}</h3>
           <div className="pill-grid">
@@ -193,35 +237,85 @@ function ExerciseCard({ exercise }: { exercise: TrainingExercise }) {
             ))}
           </div>
         </div>
-        <span className="difficulty">{exercise.difficulty}</span>
+        <button
+          className={`play-button ${isFinished ? "finished" : ""}`}
+          aria-label={isFinished ? `${exercise.name} zurücksetzen` : `Nächstes Set von ${exercise.name} abschließen`}
+          onClick={() => onCompleteNextSet(key, setCount)}
+        >
+          {isFinished ? <CheckCircle2 size={25} /> : <PlayCircle size={25} />}
+        </button>
       </div>
-      <div className="exercise-stats">
-        <span><strong>{effort}</strong></span>
-        <span>Pause: {exercise.restSeconds} Sek.</span>
+      <div className="set-table" role="table" aria-label={`Sets für ${exercise.name}`}>
+        <div className="set-table-head" role="row">
+          <span role="columnheader">Set</span>
+          <span role="columnheader">Weight</span>
+          <span role="columnheader">Reps</span>
+          <span role="columnheader">Status</span>
+        </div>
+        {Array.from({ length: setCount }, (_, setIndex) => (
+          <div className={`set-row ${completed.has(setIndex) ? "done" : ""}`} role="row" key={`${exercise.name}-set-${setIndex + 1}`}>
+            <strong role="cell">Set {setIndex + 1}</strong>
+            <span role="cell">{load}</span>
+            <span role="cell">{reps}</span>
+            <span role="cell">
+              <button
+                className="status-pill"
+                onClick={() => onToggleSet(key, setIndex)}
+                aria-pressed={completed.has(setIndex)}
+                aria-label={`Set ${setIndex + 1} von ${exercise.name} ${completed.has(setIndex) ? "als offen markieren" : "abschließen"}`}
+              >
+                {completed.has(setIndex) ? "Done" : "Ready"}
+              </button>
+            </span>
+          </div>
+        ))}
       </div>
-      <p>{exercise.instructions}</p>
+      <p className="exercise-instructions">{exercise.instructions}</p>
       {exercise.techniqueTip ? <p className="technique-tip">{exercise.techniqueTip}</p> : null}
+      <p className="muted small">Pause: {exercise.restSeconds} Sek. · Schwierigkeit: {exercise.difficulty}</p>
     </article>
   );
 }
 
-function MuscleMap({ focusMuscles }: { focusMuscles: string[] }) {
-  const bodyData = useMemo(() => muscleGroupsToBodyData(focusMuscles), [focusMuscles]);
-  const colors = useMemo(() => ["color-mix(in srgb, var(--accent) 32%, transparent)", "var(--accent)"], []);
+function getTrainingStats(plan: DailyTrainingPlan) {
+  const totalSets = plan.exercises.reduce((sum, exercise) => sum + Math.max(1, exercise.sets || 1), 0);
 
-  return (
-    <div className="muscle-map" aria-label="Muskelvisualisierung">
-      <div className="muscle-body-panel">
-        <span className="muted small">Vorne</span>
-        <Body data={bodyData} side="front" gender="male" scale={0.48} colors={colors} border="rgba(246, 243, 235, 0.46)" />
-      </div>
-      <div className="muscle-body-panel">
-        <span className="muted small">Hinten</span>
-        <Body data={bodyData} side="back" gender="male" scale={0.48} colors={colors} border="rgba(246, 243, 235, 0.46)" />
-      </div>
-      <p className="visual-license muted small">
-        Body SVG: @mjcdev/react-body-highlighter, MIT License.
-      </p>
-    </div>
+  return {
+    volume: totalSets,
+    duration: plan.durationMinutes,
+    intensity: plan.intensityPercent ?? estimateIntensity(plan),
+  };
+}
+
+function estimateIntensity(plan: DailyTrainingPlan) {
+  const averageDifficulty = Math.round(
+    plan.exercises.reduce((sum, exercise) => sum + difficultyScore(exercise.difficulty), 0) / Math.max(1, plan.exercises.length),
   );
+  const totalSets = plan.exercises.reduce((sum, exercise) => sum + Math.max(1, exercise.sets || 1), 0);
+  const densityBonus = totalSets >= 22 ? 7 : totalSets >= 16 ? 3 : 0;
+  const durationBonus = plan.durationMinutes >= 45 ? 4 : plan.durationMinutes <= 30 ? -4 : 0;
+  return Math.max(35, Math.min(95, averageDifficulty + densityBonus + durationBonus));
+}
+
+function difficultyScore(difficulty: TrainingExercise["difficulty"]) {
+  if (difficulty === "Leicht") return 58;
+  if (difficulty === "Anspruchsvoll") return 88;
+  return 74;
+}
+
+function exerciseKey(exercise: TrainingExercise, index: number) {
+  return `${index}-${exercise.name}-${exercise.sets}-${exercise.restSeconds}`;
+}
+
+function completedSetsStorageKey(training: TrainingPayload) {
+  return `dayframe_training_completion_${training.date}_${training.plan.title}`;
+}
+
+function loadCompletedSets(training: TrainingPayload): CompletedSets {
+  try {
+    const saved = localStorage.getItem(completedSetsStorageKey(training));
+    return saved ? (JSON.parse(saved) as CompletedSets) : {};
+  } catch {
+    return {};
+  }
 }

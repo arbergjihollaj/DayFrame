@@ -3,7 +3,7 @@ import { buildWeekLoad, fetchCalendarEvents } from "@/lib/ical";
 import { fetchRssCandidates } from "@/lib/rss";
 import { fetchWeather } from "@/lib/weather";
 import { displayDate, greetingForNow, todayKey } from "@/lib/date";
-import { fallbackBriefing, generateWithAI } from "@/lib/openai";
+import { fallbackBriefing, generateWithAI } from "@/lib/ai";
 import { dailyPlanToSections, generateDailyPlan } from "@/lib/planning";
 import { attachNewsLinks } from "@/lib/newsLinks";
 

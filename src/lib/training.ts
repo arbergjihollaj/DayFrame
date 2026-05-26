@@ -8,6 +8,8 @@ export const visualMuscleGroups = fixedMuscleGroups;
 export const dailyTrainingPlanSchema = z.object({
   title: z.string().min(3),
   durationMinutes: z.number().int().min(20).max(60),
+  intensityPercent: z.number().int().min(1).max(100),
+  intensityLabel: z.string().min(3),
   focusMuscles: z.array(z.string()).min(1),
   warmup: z.array(
     z.object({
@@ -41,10 +43,12 @@ export const dailyTrainingPlanSchema = z.object({
 const trainingJsonSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["title", "durationMinutes", "focusMuscles", "warmup", "exercises", "cooldown"],
+  required: ["title", "durationMinutes", "intensityPercent", "intensityLabel", "focusMuscles", "warmup", "exercises", "cooldown"],
   properties: {
     title: { type: "string" },
     durationMinutes: { type: "integer", minimum: 20, maximum: 60 },
+    intensityPercent: { type: "integer", minimum: 1, maximum: 100 },
+    intensityLabel: { type: "string" },
     focusMuscles: { type: "array", items: { enum: visualMuscleGroups } },
     warmup: {
       type: "array",
@@ -106,10 +110,14 @@ Berücksichtige trainingDifficulty:
 
 Gib die Antwort ausschließlich als valides JSON zurück. Keine Markdown-Erklärung, kein Text außerhalb des JSON.
 
+Setze intensityPercent als fachliche Einschätzung der Gesamtbelastung dieses konkreten Plans von 1 bis 100. Berücksichtige dabei Schwierigkeit, Dichte, Pausen, Gesamtvolumen und Übungsauswahl. intensityLabel ist eine kurze deutsche Beschreibung, z.B. "moderat", "fordernd" oder "hoch".
+
 JSON-Struktur:
 {
   "title": "Workout-Titel",
   "durationMinutes": 40,
+  "intensityPercent": 74,
+  "intensityLabel": "fordernd",
   "focusMuscles": ["Brust", "Trizeps", "Bauch"],
   "warmup": [
     {
@@ -254,6 +262,8 @@ export function fallbackTrainingPlan(difficulty: TrainingDifficulty = "normal"):
   const plan: DailyTrainingPlan = {
     title: "Home Push & Core",
     durationMinutes: 38,
+    intensityPercent: 72,
+    intensityLabel: "moderat bis fordernd",
     focusMuscles: ["Brust", "Trizeps", "Schultern", "Bauch", "Beine"],
     warmup: [
       {
@@ -342,6 +352,8 @@ export function fallbackTrainingPlan(difficulty: TrainingDifficulty = "normal"):
       ...plan,
       title: "Leichtes Home-Workout",
       durationMinutes: 32,
+      intensityPercent: 55,
+      intensityLabel: "moderat",
       focusMuscles: ["Brust", "Schultern", "Bauch", "Beine"],
       exercises: plan.exercises
         .filter((exercise) => exercise.name !== "Negative Pull-ups")
@@ -359,6 +371,8 @@ export function fallbackTrainingPlan(difficulty: TrainingDifficulty = "normal"):
       ...plan,
       title: "Intensives Home Strength Workout",
       durationMinutes: 45,
+      intensityPercent: 86,
+      intensityLabel: "hoch",
       exercises: [
         ...plan.exercises.map((exercise) => ({
           ...exercise,

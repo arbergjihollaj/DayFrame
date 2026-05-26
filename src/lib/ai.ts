@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import { z } from "zod";
 import type { DayPlan, NewsItem, WeatherSummary, WeekLoadItem } from "@/lib/types";
 
@@ -196,37 +195,7 @@ Fehler / fehlende Daten:
 `.trim();
 
 export async function generateWithAI(input: unknown): Promise<GeneratedBriefing | null> {
-  if (process.env.AI_PROVIDER === "gemini") {
-    return generateWithGemini(input);
-  }
-  return generateWithOpenAI(input);
-}
-
-async function generateWithOpenAI(input: unknown): Promise<GeneratedBriefing | null> {
-  if (!process.env.OPENAI_API_KEY) return null;
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await client.responses.create({
-    model: process.env.OPENAI_MODEL ?? "gpt-5-mini",
-    input: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: JSON.stringify(input),
-      },
-    ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "dayframe_briefing",
-        strict: true,
-        schema: briefingJsonSchema,
-      },
-    },
-  });
-  return generatedBriefingSchema.parse(JSON.parse(response.output_text));
+  return generateWithGemini(input);
 }
 
 async function generateWithGemini(input: unknown): Promise<GeneratedBriefing | null> {
