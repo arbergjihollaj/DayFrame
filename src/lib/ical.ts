@@ -6,12 +6,14 @@ type CalendarEntry = {
   type?: string;
   uid?: string;
   summary?: string;
-  start?: Date;
-  end?: Date;
+  start?: Date & { dateOnly?: true };
+  end?: Date & { dateOnly?: true };
+  datetype?: string;
 };
 
 const visibleMarkers = new Set(["Ab", "F"]);
 const familyMarkerPattern = /^\s*\[(Ab|Ad|V|M|F)\]\s*/;
+const scheduleBlockingPattern = /\b(urlaub|ferien|frei|vacation|holiday)\b/i;
 
 function isTimedEvent(entry: unknown): entry is CalendarEntry & { start: Date; end: Date } {
   const event = entry as CalendarEntry | undefined;
@@ -21,9 +23,18 @@ function isTimedEvent(entry: unknown): entry is CalendarEntry & { start: Date; e
 export function normalizeCalendarTitle(summary?: string) {
   const title = String(summary ?? "Termin").trim();
   const match = title.match(familyMarkerPattern);
-  if (!match) return null;
-  if (!visibleMarkers.has(match[1])) return null;
+  if (!match) return scheduleBlockingPattern.test(title) ? title : null;
+  if (!visibleMarkers.has(match[1]) && !scheduleBlockingPattern.test(title)) return null;
   return title.replace(familyMarkerPattern, "").trim() || "Termin";
+}
+
+function isScheduleBlockingEvent(title: string) {
+  return scheduleBlockingPattern.test(title);
+}
+
+function isAllDayEvent(entry: CalendarEntry & { start: Date; end: Date }) {
+  const durationMs = entry.end.getTime() - entry.start.getTime();
+  return entry.datetype === "date" || Boolean(entry.start.dateOnly) || (durationMs >= 23 * 60 * 60 * 1000 && timePart(entry.start) === timePart(entry.end));
 }
 
 function timePart(date: Date) {
@@ -46,19 +57,28 @@ export async function fetchCalendarEvents(icalUrl: string) {
     const values: unknown[] = Object.values(data);
     const events = values
       .filter(isTimedEvent)
-      .filter((entry) => entry.start >= start && entry.start < end)
-      .map((entry) => {
+      .filter((entry) => entry.start < end && entry.end > start)
+      .flatMap((entry) => {
         const title = normalizeCalendarTitle(entry.summary);
-        if (!title) return null;
-        return {
-          id: String(entry.uid ?? `${entry.summary}-${entry.start?.toISOString()}`),
-          title,
-          date: toDateKey(entry.start as Date),
-          startTime: timePart(entry.start as Date),
-          endTime: timePart(entry.end as Date),
-        };
+        if (!title) return [];
+        const allDay = isAllDayEvent(entry);
+        const firstDay = entry.start > start ? entry.start : start;
+        const lastDay = entry.end < end ? entry.end : end;
+        const days = Math.max(1, Math.ceil((lastDay.getTime() - firstDay.getTime()) / 86_400_000));
+        return Array.from({ length: days }).map((_, index) => {
+          const day = addDays(firstDay, index);
+          const date = toDateKey(day);
+          return {
+            id: String(`${entry.uid ?? `${entry.summary}-${entry.start.toISOString()}`}-${date}`),
+            title,
+            date,
+            startTime: allDay || index > 0 ? "00:00" : timePart(entry.start),
+            endTime: allDay || index < days - 1 ? "23:59" : timePart(entry.end),
+            isAllDay: allDay,
+            blocksSchedule: isScheduleBlockingEvent(title),
+          };
+        });
       })
-      .filter((event): event is CalendarEvent => Boolean(event))
       .sort((a, b) => `${a.date} ${a.startTime}`.localeCompare(`${b.date} ${b.startTime}`));
     return { events, error: null };
   } catch {

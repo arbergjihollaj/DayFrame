@@ -36,8 +36,16 @@ export async function generateBriefing() {
     date,
     displayDate: displayDate(),
     newsPreferences: {
+      AI:
+        "Nur wichtige AI-News nehmen: LLMs, OpenAI/Gemini, KI-Forschung, Coding-Tools, KI-Regulierung, KI-Infrastruktur oder gesellschaftlich relevante KI-Entwicklungen. Gaming, Social Media, normale Gadget- und App-News vermeiden.",
       Deutschland:
-        "Deutschland-News sollen bevorzugt deutsche Innenpolitik, Bundesregierung, Bundestag, Parteien, Wahlen, Gesetzgebung und politische Entscheidungen abdecken. Allgemeine Vermischtes-Meldungen nur nehmen, wenn sie politisch relevant sind.",
+        "Deutschland-News sollen bevorzugt deutsche Innenpolitik, Bundesregierung, Bundestag, Parteien, Wahlen, Gesetzgebung, Wirtschaftspolitik, Sozialstaat, Sicherheit, Migration und politische Entscheidungen abdecken. Allgemeine Vermischtes-Meldungen nur nehmen, wenn sie politisch oder wirtschaftlich relevant sind.",
+      Wissenschaft:
+        "Wissenschaft-News bevorzugt zu Physik, Quanten, Weltraum, Biologie, Genetik, Zellen, Medizin und Neurowissenschaften. Kuriose Vermischtes-Wissenschaft nur nehmen, wenn sie wirklich wichtig ist.",
+      Technik:
+        "Technik-News nur nehmen, wenn sie Entwickler, IT-Sicherheit, Chips, Software, Daten, Infrastruktur, Regulierung oder groessere wirtschaftliche Folgen betrifft. Reine Produktlaunches und Consumer-Gadgets vermeiden.",
+      "Kosovo / Balkan":
+        "Aktuell nicht priorisieren, ausser Arber aktiviert spaeter ausdruecklich wieder Balkan-News als Kerninteresse.",
     },
     settings,
     dailyContext,

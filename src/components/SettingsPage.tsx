@@ -8,19 +8,32 @@ import type { Settings } from "@/lib/types";
 type NewsSource = { id: number; name: string; url: string; category: string; enabled: number };
 type NewsSourceDraft = { id?: number; name: string; url: string; category: string; enabled: boolean };
 type SettingsPanel = "appearance" | "ai" | "sources" | "routine";
+type TrainingSettings = {
+  trainingAIEnabled: boolean;
+  equipment: string[];
+  defaultEffort: number;
+};
 type AiSecrets = {
   geminiKeyMasked: string;
   geminiModel: string;
+  geminiKeys: {
+    id: string;
+    nickname: string;
+    masked: string;
+    active: boolean;
+  }[];
 };
 
-const accentColors = ["#78a6ff", "#19a974", "#f97316", "#e0528d", "#8b5cf6", "#14b8a6"];
+const accentColors = ["#6063ee", "#35b3a6", "#19a974", "#e95878", "#ffb95f", "#7c5cff"];
 
 export function SettingsPage() {
   const [settings, setSettings] = useState<Settings | null>(null);
   const [sources, setSources] = useState<NewsSource[]>([]);
-  const [activePanel, setActivePanel] = useState<SettingsPanel>("appearance");
+  const [trainingSettings, setTrainingSettings] = useState<TrainingSettings | null>(null);
+  const [activePanel, setActivePanel] = useState<SettingsPanel | null>(null);
   const [ai, setAi] = useState<AiSecrets | null>(null);
   const [aiDraft, setAiDraft] = useState({
+    geminiNickname: "",
     geminiKey: "",
     geminiModel: "gemini-2.5-flash",
   });
@@ -28,12 +41,14 @@ export function SettingsPage() {
   const [saved, setSaved] = useState("");
 
   async function load() {
-    const [data, secretData] = await Promise.all([
+    const [data, secretData, trainingData] = await Promise.all([
       fetch("/api/settings").then((res) => res.json()),
       fetch("/api/secrets").then((res) => res.json()),
+      fetch("/api/training/settings").then((res) => res.json()),
     ]);
     setSettings(data.settings);
     setSources(data.newsSources);
+    setTrainingSettings(trainingData.settings);
     setAi(secretData.ai);
     setAiDraft((current) => ({
       ...current,
@@ -72,8 +87,32 @@ export function SettingsPage() {
     });
     const data = await response.json();
     setAi(data.ai);
-    setAiDraft((current) => ({ ...current, geminiKey: "" }));
+    setAiDraft((current) => ({ ...current, geminiNickname: "", geminiKey: "" }));
     setSaved("Gemini-Zugang wurde in .env gespeichert.");
+    setTimeout(() => setSaved(""), 2600);
+  }
+
+  async function deleteGeminiKey(id: string) {
+    await fetch("/api/secrets", {
+      method: "POST",
+      body: JSON.stringify({ deleteGeminiKeyId: id }),
+    });
+    setSaved("Gemini-Key wurde entfernt.");
+    setTimeout(() => setSaved(""), 2200);
+    await load();
+  }
+
+  async function toggleTrainingApi() {
+    if (!trainingSettings) return;
+    const next = { ...trainingSettings, trainingAIEnabled: !trainingSettings.trainingAIEnabled };
+    setTrainingSettings(next);
+    const response = await fetch("/api/training/settings", {
+      method: "POST",
+      body: JSON.stringify({ trainingAIEnabled: next.trainingAIEnabled }),
+    });
+    const data = await response.json();
+    setTrainingSettings(data.settings);
+    setSaved(next.trainingAIEnabled ? "Training nutzt jetzt die Gemini API." : "Training nutzt jetzt den lokalen Algorithmus.");
     setTimeout(() => setSaved(""), 2600);
   }
 
@@ -149,6 +188,19 @@ export function SettingsPage() {
             <span className="tag">Gemini</span>
             <span className="muted small">{ai?.geminiKeyMasked ? `Key gespeichert: ${ai.geminiKeyMasked}` : "Kein Key gespeichert"}</span>
           </div>
+          <div className="settings-status-row training-api-toggle-row">
+            <button
+              className={`api-toggle-button ${trainingSettings?.trainingAIEnabled ? "active" : ""}`}
+              onClick={toggleTrainingApi}
+              type="button"
+              aria-label={trainingSettings?.trainingAIEnabled ? "Training API ausschalten" : "Training API einschalten"}
+              aria-pressed={Boolean(trainingSettings?.trainingAIEnabled)}
+            />
+          </div>
+          <div className="field">
+            <label>Spitzname</label>
+            <input className="input" value={aiDraft.geminiNickname} onChange={(event) => setAiDraft({ ...aiDraft, geminiNickname: event.target.value })} placeholder="Privat, Uni, Backup..." />
+          </div>
           <div className="field">
             <label>Gemini API-Key</label>
             <input className="input" type="password" value={aiDraft.geminiKey} onChange={(event) => setAiDraft({ ...aiDraft, geminiKey: event.target.value })} placeholder="AIza..." />
@@ -158,6 +210,22 @@ export function SettingsPage() {
             <input className="input" value={aiDraft.geminiModel} onChange={(event) => setAiDraft({ ...aiDraft, geminiModel: event.target.value })} placeholder="gemini-2.5-flash" />
           </div>
           <button className="primary" onClick={saveSecrets}>Gemini-Zugang speichern</button>
+          <div className="stack">
+            <h3 className="section-title">Gespeicherte API-Keys</h3>
+            {ai?.geminiKeys.length ? (
+              ai.geminiKeys.map((key) => (
+                <div className="row" key={key.id}>
+                  <div>
+                    <strong>{key.nickname}</strong>
+                    <p className="muted small">{key.active ? "Aktiv" : "Gespeichert"} · {key.masked}</p>
+                  </div>
+                  <button className="icon-btn" onClick={() => deleteGeminiKey(key.id)} aria-label={`Gemini-Key ${key.nickname} entfernen`}><Trash2 size={17} /></button>
+                </div>
+              ))
+            ) : (
+              <p className="muted small">Noch keine Gemini-Keys gespeichert.</p>
+            )}
+          </div>
           <div className="quota-card">
             <strong>Kontingent</strong>
             <p className="muted small">Google stellt das freie Restkontingent nicht direkt über die Gemini-API bereit. Die offizielle Nutzung siehst du im AI Studio.</p>
@@ -288,7 +356,7 @@ export function SettingsPage() {
           const active = activePanel === panel.id;
           return (
             <article className={`settings-accordion-item ${active ? "open" : ""}`} key={panel.id}>
-              <button className="settings-tile" aria-expanded={active} onClick={() => setActivePanel(panel.id)}>
+              <button className="settings-tile" aria-expanded={active} onClick={() => setActivePanel(active ? null : panel.id)}>
                 <Icon size={22} />
                 <span>
                   <strong>{panel.title}</strong>

@@ -29,34 +29,20 @@ export function NewsPage() {
   }, []);
 
   const featured = news[0];
-  const readingList = news.slice(1, 5);
-  const headlines = news.slice(5);
+  const headlines = news.slice(1);
 
   return (
     <div className="news-page">
       {featured ? <FeaturedArticle item={featured} index={0} onOpen={setSelectedNews} /> : null}
 
-      {readingList.length ? (
-        <section className="news-section">
-          <div className="news-section-head">
-            <h2>Reading List</h2>
-            <span>See all</span>
-          </div>
-          <div className="reading-rail" aria-label="Reading list">
-            {readingList.map((item, index) => (
-              <ReadingCard item={item} index={index + 1} key={item.id} onOpen={setSelectedNews} />
-            ))}
-          </div>
-        </section>
-      ) : null}
-
       <section className="news-section">
         <div className="news-section-head">
-          <h2>Latest Headlines</h2>
+          <h2>Aktuelle Schlagzeilen</h2>
+          {news.length ? <span>{news.length} ausgewählt</span> : null}
         </div>
         <div className="headline-list" aria-label="Nachrichtenliste">
           {(headlines.length ? headlines : news).map((item, index) => (
-            <HeadlineCard item={item} index={index + 5} key={`${item.id}-headline`} onOpen={setSelectedNews} />
+            <HeadlineCard item={item} index={index + 1} key={`${item.id}-headline`} onOpen={setSelectedNews} />
           ))}
         </div>
         {!news.length ? <div className="card muted">Noch keine ausgewählten News. Generiere zuerst ein Briefing.</div> : null}
@@ -71,25 +57,15 @@ function FeaturedArticle({ item, index, onOpen }: { item: NewsItem; index: numbe
     <NewsCardButton className="featured-news" item={item} onOpen={onOpen} style={newsImageStyle(item, index)}>
       <div className="featured-news-content">
         <div className="featured-meta">
-          <span className="featured-tag">Special Report</span>
-          <span>6 min read</span>
+          <span className="featured-tag">{item.category}</span>
+          <span>{item.source}</span>
         </div>
         <h1>{item.title}</h1>
         <div className="featured-bottom">
-          <span>{item.source}</span>
-          <span>Today</span>
+          <span>{item.summary}</span>
+          <span>Heute</span>
         </div>
       </div>
-    </NewsCardButton>
-  );
-}
-
-function ReadingCard({ item, index, onOpen }: { item: NewsItem; index: number; onOpen: (item: NewsItem) => void }) {
-  return (
-    <NewsCardButton className="reading-card" item={item} onOpen={onOpen}>
-      <span className="reading-image" style={newsImageStyle(item, index)} />
-      <strong>{item.title}</strong>
-      <span>{item.source}</span>
     </NewsCardButton>
   );
 }
@@ -97,9 +73,12 @@ function ReadingCard({ item, index, onOpen }: { item: NewsItem; index: number; o
 function HeadlineCard({ item, index, onOpen }: { item: NewsItem; index: number; onOpen: (item: NewsItem) => void }) {
   return (
     <NewsCardButton className="headline-card" item={item} onOpen={onOpen}>
-      <span className="headline-image" style={newsImageStyle(item, index)} />
+      <span className="headline-image" style={newsImageStyle(item, index)}>
+        <span>{item.category}</span>
+      </span>
       <span className="headline-copy">
         <strong>{item.title}</strong>
+        <span>{item.summary}</span>
         <small>{item.source} · {item.category}</small>
       </span>
       {item.url ? <ExternalLink size={18} aria-hidden="true" /> : null}
@@ -213,6 +192,6 @@ function savedArticleKey(id: string) {
 function newsImageStyle(item: NewsItem, index: number) {
   const image = categoryImages[item.category] ?? fallbackImages[index % fallbackImages.length];
   return {
-    backgroundImage: `linear-gradient(180deg, rgba(5, 11, 21, 0.05), rgba(5, 11, 21, 0.72)), url(${image})`,
+    backgroundImage: `linear-gradient(135deg, rgba(5, 11, 21, 0.04), rgba(5, 11, 21, 0.34) 42%, rgba(5, 11, 21, 0.76)), url(${image})`,
   };
 }
