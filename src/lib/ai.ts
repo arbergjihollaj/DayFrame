@@ -1,4 +1,3 @@
-import OpenAI from "openai";
 import { z } from "zod";
 import type { DayPlan, NewsItem, WeatherSummary, WeekLoadItem } from "@/lib/types";
 
@@ -184,7 +183,12 @@ News:
 - Ruhiger Tag ca. 5 News, normal 8-12, wichtige Lage bis 15.
 - Gib maximal 15 News zurueck und sortiere sie nach Wichtigkeit.
 - Bevorzuge aktuelle Artikel.
-- Deutschland-News sollen bevorzugt Politik sein: Bundesregierung, Bundestag, Parteien, Wahlen, Gesetzgebung, Sozialstaat, Wirtschaftspolitik, Sicherheit und EU-Bezug.
+- Arbers News-Interessen sind: wichtige AI-Entwicklungen, deutsche Innenpolitik, relevante Wirtschaftspolitik, Technik mit echter Bedeutung, Wissenschaft mit Fokus Physik und Biologie.
+- AI heisst hier: LLMs, OpenAI/Gemini, KI-Forschung, Coding-Tools, KI-Regulierung, KI-Infrastruktur oder gesellschaftlich relevante KI-Entwicklungen. Allgemeine Gadgets oder normale App-News zaehlen nicht automatisch als AI.
+- Deutschland-News sollen bevorzugt Innenpolitik, Bundesregierung, Bundestag, Parteien, Wahlen, Gesetzgebung, Sozialstaat, Wirtschaftspolitik, Sicherheit, Migration und EU-Bezug abdecken.
+- Wissenschaft soll bevorzugt Physik, Quanten/Teilchen/Weltraum, Biologie, Genetik, Zellen, Medizin/Neurowissenschaften oder wichtige Forschung behandeln.
+- Technik soll nur aufgenommen werden, wenn sie fuer Entwickler, Sicherheit, Chips, Software, Daten, Infrastruktur oder Regulierung relevant ist.
+- Vermeide Gaming, Social Media, Influencer, reine Consumer-Gadgets, Entertainment, Kosovo/Balkan und Produktlaunches ohne groessere Relevanz.
 - Die id jeder ausgewaehlten News muss exakt die id des passenden newsCandidates-Eintrags sein.
 - Jede News braucht summary und relevance. Relevance erklaert, warum es fuer Arber relevant ist.
 - Keine Original-Links ausgeben.
@@ -196,37 +200,7 @@ Fehler / fehlende Daten:
 `.trim();
 
 export async function generateWithAI(input: unknown): Promise<GeneratedBriefing | null> {
-  if (process.env.AI_PROVIDER === "gemini") {
-    return generateWithGemini(input);
-  }
-  return generateWithOpenAI(input);
-}
-
-async function generateWithOpenAI(input: unknown): Promise<GeneratedBriefing | null> {
-  if (!process.env.OPENAI_API_KEY) return null;
-  const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-  const response = await client.responses.create({
-    model: process.env.OPENAI_MODEL ?? "gpt-5-mini",
-    input: [
-      {
-        role: "system",
-        content: systemPrompt,
-      },
-      {
-        role: "user",
-        content: JSON.stringify(input),
-      },
-    ],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "dayframe_briefing",
-        strict: true,
-        schema: briefingJsonSchema,
-      },
-    },
-  });
-  return generatedBriefingSchema.parse(JSON.parse(response.output_text));
+  return generateWithGemini(input);
 }
 
 async function generateWithGemini(input: unknown): Promise<GeneratedBriefing | null> {

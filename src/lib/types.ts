@@ -40,6 +40,8 @@ export type CalendarEvent = {
   date: string;
   startTime: string;
   endTime: string;
+  isAllDay?: boolean;
+  blocksSchedule?: boolean;
 };
 
 export type PlanItem = {
@@ -281,6 +283,12 @@ export type TrainingExercise = {
   duration: string | null;
   restSeconds: number;
   difficulty: "Leicht" | "Mittel" | "Anspruchsvoll";
+  visual?: {
+    type: "image" | "gif" | "video" | "none";
+    url?: string;
+    source?: "local" | "exercisedb" | "wger";
+    alt?: string;
+  };
   instructions: string;
   techniqueTip?: string | null;
 };
@@ -288,6 +296,8 @@ export type TrainingExercise = {
 export type DailyTrainingPlan = {
   title: string;
   durationMinutes: number;
+  intensityPercent?: number;
+  intensityLabel?: string;
   focusMuscles: string[];
   warmup: WorkoutStep[];
   exercises: TrainingExercise[];

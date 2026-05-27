@@ -1,6 +1,7 @@
 import Parser from "rss-parser";
 import crypto from "node:crypto";
 import { getNewsSources } from "@/lib/db";
+import { filterRelevantNewsCandidates } from "@/lib/newsRelevance";
 
 const parser = new Parser();
 
@@ -55,8 +56,7 @@ export async function fetchRssCandidates(enabledCategories: string[]) {
   );
 
   return {
-    candidates: candidates
-      .sort((a, b) => new Date(b.isoDate ?? 0).getTime() - new Date(a.isoDate ?? 0).getTime())
+    candidates: filterRelevantNewsCandidates(candidates)
       .slice(0, 40),
     errors,
   };

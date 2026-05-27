@@ -248,10 +248,10 @@ export function buildFixedBlocks(date: string, calendarEvents: CalendarEvent[], 
     5: [block(date, "softskills-fri", "Soft Skills", "class", "17:30", "19:00", "Online", "softskills")],
   };
   const uniBlocks = uniByWeekday[weekday] ?? [];
-  const activeUni = uniBlocks.filter((item) => item.attendanceExpected !== false && (item.location !== "Campus" || goesToUniversity !== false));
-  const calendar = calendarEvents
-    .filter((event) => event.date === date)
-    .map((event) => block(date, `cal-${event.id}`, event.title, "class", event.startTime, event.endTime, undefined, undefined, true, true));
+  const calendarForDate = calendarEvents.filter((event) => event.date === date);
+  const hasScheduleBlocker = calendarForDate.some((event) => event.blocksSchedule);
+  const activeUni = hasScheduleBlocker ? [] : uniBlocks.filter((item) => item.attendanceExpected !== false && (item.location !== "Campus" || goesToUniversity !== false));
+  const calendar = calendarForDate.map((event) => block(date, `cal-${event.id}`, event.title, "class", event.startTime, event.endTime, undefined, undefined, true, true));
   return mergeOverlapping([...activeUni, ...calendar].sort((a, b) => a.start.localeCompare(b.start)));
 }
 

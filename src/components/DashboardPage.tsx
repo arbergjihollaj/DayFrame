@@ -428,6 +428,42 @@ function minutesToTime(value: number) {
   return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
 }
 
+function todayKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function getTimelineNowPosition(blocks: DailyPlanDetails["timeBlocks"], now: Date, planDate: string) {
+  if (!blocks.length || planDate !== todayKey(now)) return null;
+
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+  const firstStart = timeToMinutes(blocks[0].start);
+  const lastIndex = blocks.length - 1;
+  const lastEnd = timeToMinutes(blocks[lastIndex].end);
+
+  if (currentMinutes <= firstStart) return { index: 0, progress: 0 };
+  if (currentMinutes >= lastEnd) return { index: lastIndex, progress: 1 };
+
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index];
+    const start = timeToMinutes(block.start);
+    const end = timeToMinutes(block.end);
+
+    if (currentMinutes >= start && currentMinutes <= end) {
+      return {
+        index,
+        progress: end === start ? 0 : Math.min(1, Math.max(0, (currentMinutes - start) / (end - start))),
+      };
+    }
+
+    const nextStart = blocks[index + 1] ? timeToMinutes(blocks[index + 1].start) : null;
+    if (nextStart !== null && currentMinutes > end && currentMinutes < nextStart) {
+      return { index, progress: 1 };
+    }
+  }
+
+  return null;
+}
+
 function WeatherOverview({ weather, fallbackPlace }: { weather: WeatherSummary; fallbackPlace: string }) {
   return (
     <section className="weather-top card">
@@ -456,7 +492,15 @@ function WeatherOverview({ weather, fallbackPlace }: { weather: WeatherSummary; 
 }
 
 function PlanningOverview({ plan, onRefresh }: { plan: DailyPlanDetails; onRefresh: () => void }) {
+  const [now, setNow] = useState(() => new Date());
   const visibleBlocks = plan.timeBlocks.filter((block) => block.kind !== "meal" && block.kind !== "buffer").slice(0, 9);
+  const currentPosition = getTimelineNowPosition(visibleBlocks, now, plan.date);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   return (
     <section className="dash-section">
       <div className="section-head">
@@ -478,9 +522,16 @@ function PlanningOverview({ plan, onRefresh }: { plan: DailyPlanDetails; onRefre
         <div className="card plan-section">
           <h3 className="section-title">Daily Timeline</h3>
           <div className="timeline vertical-timeline">
-            {visibleBlocks.map((block) => (
+            {visibleBlocks.map((block, index) => (
               <div className={`timeline-row ${block.kind}`} key={block.id}>
                 <span className="timeline-marker" aria-hidden="true" />
+                {currentPosition?.index === index ? (
+                  <span
+                    className="timeline-now-marker"
+                    style={{ top: `${15 + currentPosition.progress * 70}%` }}
+                    aria-label="Aktuelle Position im Tagesplan"
+                  />
+                ) : null}
                 <div className="time">{block.start}-{block.end}</div>
                 <div>
                   <strong>{block.title}</strong>

@@ -1,42 +1,122 @@
 "use client";
 
-import { AlertTriangle, Clock3, Dumbbell, RefreshCw, Sparkles } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Dumbbell, ImageIcon, PlayCircle, RefreshCw } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { DailyTrainingPlan, TrainingExercise, WorkoutStep } from "@/lib/types";
+import type { Exercise, MuscleGroup, WorkoutPlan } from "@/lib/training/types";
 
 type TrainingPayload = {
+  id: number;
   date: string;
+  version: number;
+  plan: WorkoutPlan;
+  motivationScore: number | null;
+  readinessScore: number;
   generatedAt: string;
-  plan: DailyTrainingPlan;
-  source: string;
-  errorMessage: string | null;
-  retryAfterSeconds?: number;
+  completedAt: string | null;
+  regenerationsUsed: number;
+  regenerationsRemaining: number;
+  regenerationLimit: number;
+};
+
+type CompletedSets = Record<string, number[]>;
+
+const muscleLabels: Record<MuscleGroup, string> = {
+  chest: "Brust",
+  back: "Rücken",
+  shoulders: "Schultern",
+  biceps: "Bizeps",
+  triceps: "Trizeps",
+  core: "Bauch",
+  legs: "Beine",
+  glutes: "Gesäß",
+  calves: "Waden",
+  forearms: "Unterarme",
+  mobility: "Mobility",
+};
+
+const planTypeLabels: Record<string, string> = {
+  starter: "Starter",
+  normal: "Normal",
+  low_motivation: "Niedrige Motivation",
+  recovery: "Erholung",
+  progression: "Fortschritt",
+  deload: "Deload",
+  comeback: "Comeback",
 };
 
 export function TrainingPage() {
   const [training, setTraining] = useState<TrainingPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [completedSets, setCompletedSets] = useState<CompletedSets>({});
+  const [motivationScore, setMotivationScore] = useState(5);
   const [error, setError] = useState("");
+  const [saved, setSaved] = useState("");
 
-  async function load(method: "GET" | "POST" = "GET") {
+  async function load() {
     setError("");
-    if (method === "POST") {
-      setGenerating(true);
-    } else {
-      setLoading(true);
-    }
+    setLoading(true);
     try {
-      const response = await fetch("/api/training", { method });
+      const response = await fetch("/api/training/today");
       if (!response.ok) throw new Error("Training konnte nicht geladen werden.");
       const data = (await response.json()) as { training: TrainingPayload | null };
       if (!data.training) throw new Error("Training konnte nicht vorbereitet werden.");
       setTraining(data.training);
+      setMotivationScore(data.training.motivationScore ?? 5);
+      setCompletedSets(loadCompletedSets(data.training));
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Training konnte nicht geladen werden.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function regenerate() {
+    if (training?.regenerationsRemaining === 0) return;
+    setError("");
+    setSaved("");
+    setGenerating(true);
+    try {
+      const response = await fetch("/api/training/regenerate", {
+        method: "POST",
+        body: JSON.stringify({ motivationScore }),
+      });
+      const data = (await response.json()) as { plan?: TrainingPayload | null; training?: TrainingPayload | null; error?: string };
+      const next = data.plan ?? data.training;
+      if (!response.ok) throw new Error(data.error ?? "Tageslimit fuer Neu-Generierungen erreicht.");
+      if (!next) throw new Error("Training konnte nicht neu generiert werden.");
+      setTraining(next);
+      setCompletedSets({});
+    } catch (regenerateError) {
+      setError(regenerateError instanceof Error ? regenerateError.message : "Training konnte nicht neu generiert werden.");
+    } finally {
       setGenerating(false);
+    }
+  }
+
+  async function completePlan() {
+    if (!training) return;
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/training/complete", {
+        method: "POST",
+        body: JSON.stringify({
+          planId: training.id,
+          completed: true,
+          checkedExercises: checkedPayload(completedSets),
+          effortActual: Math.max(1, Math.min(5, Math.ceil(training.plan.intensity / 20))),
+          durationActual: training.plan.durationMin,
+        }),
+      });
+      if (!response.ok) throw new Error("Training konnte nicht gespeichert werden.");
+      setSaved("Training gespeichert.");
+      await load();
+    } catch (completeError) {
+      setError(completeError instanceof Error ? completeError.message : "Training konnte nicht gespeichert werden.");
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -46,6 +126,34 @@ export function TrainingPage() {
 
   const plan = training?.plan;
   const generatedAt = training ? new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" }).format(new Date(training.generatedAt)) : "";
+  const stats = useMemo(() => (plan ? getTrainingStats(plan) : null), [plan]);
+
+  useEffect(() => {
+    if (!training) return;
+    localStorage.setItem(completedSetsStorageKey(training), JSON.stringify(completedSets));
+  }, [completedSets, training]);
+
+  function toggleSet(exerciseId: string, setIndex: number) {
+    setCompletedSets((current) => {
+      const done = new Set(current[exerciseId] ?? []);
+      if (done.has(setIndex)) {
+        done.delete(setIndex);
+      } else {
+        done.add(setIndex);
+      }
+      return { ...current, [exerciseId]: Array.from(done).sort((a, b) => a - b) };
+    });
+  }
+
+  function completeNextSet(exerciseId: string, setCount: number) {
+    setCompletedSets((current) => {
+      const done = new Set(current[exerciseId] ?? []);
+      const nextOpen = Array.from({ length: setCount }, (_, index) => index).find((index) => !done.has(index));
+      if (nextOpen === undefined) return { ...current, [exerciseId]: [] };
+      done.add(nextOpen);
+      return { ...current, [exerciseId]: Array.from(done).sort((a, b) => a - b) };
+    });
+  }
 
   if (loading) return <TrainingLoading />;
 
@@ -55,15 +163,22 @@ export function TrainingPage() {
         <div className="training-hero-copy">
           <span className="eyebrow">
             <span className="dot" />
-            Training
+            Trainingsplan
           </span>
-          <h1 className="page-title">{plan?.title ?? "Heutiges Workout"}</h1>
-          <p className="lead">Dein Tagesplan für zuhause, passend zu Laufband, Pull-up-Stange, Liegestützebrett, Yogamatte und Körpergewicht.</p>
+          <h1 className="page-title">{plan?.title ?? "Heute"}</h1>
+          <p className="lead">{plan?.summary ?? "Dein Tagesplan für zuhause wird vorbereitet."}</p>
         </div>
-        <button className="primary training-refresh" onClick={() => load("POST")} disabled={generating}>
-          <RefreshCw size={18} className={generating ? "spin" : ""} />
-          {generating ? "Wird generiert" : "Neues Training generieren"}
-        </button>
+        <div className="training-actions">
+          <label className="motivation-slider">
+            <span>Motivation {motivationScore}/10</span>
+            <input min={1} max={10} type="range" value={motivationScore} onChange={(event) => setMotivationScore(Number(event.target.value))} />
+          </label>
+          <button className="primary training-refresh" onClick={regenerate} disabled={generating || training?.regenerationsRemaining === 0}>
+            <RefreshCw size={18} className={generating ? "spin" : ""} />
+            {generating ? "Wird generiert" : "Neu generieren"}
+          </button>
+          {training ? <span className="muted small">Noch {training.regenerationsRemaining} von {training.regenerationLimit} heute</span> : null}
+        </div>
       </header>
 
       {error ? (
@@ -73,70 +188,79 @@ export function TrainingPage() {
         </div>
       ) : null}
 
-      {training?.source === "fallback" ? (
-        <div className="card training-alert">
-          <AlertTriangle size={19} />
-          <span>
-            <strong>Fallback-Training aktiv.</strong>{" "}
-            {training.errorMessage ?? "Gemini konnte gerade keinen Plan erstellen."}
-            {training.retryAfterSeconds ? ` Neuer Versuch in ca. ${training.retryAfterSeconds} Sekunden sinnvoll.` : ""}
-          </span>
+      {saved ? (
+        <div className="card training-success">
+          <CheckCircle2 size={19} />
+          <span>{saved}</span>
         </div>
       ) : null}
 
-      {plan ? (
-        <>
-          <section className="training-summary card">
-            <div>
-              <span className="muted small">Heute</span>
-              <h2>{plan.title}</h2>
-            </div>
-            <div className="training-meta-grid">
-              <div className="training-meta">
-                <Clock3 size={18} />
-                <strong>{plan.durationMinutes} Min.</strong>
-              </div>
-              <div className="training-meta">
-                <Sparkles size={18} />
-                <strong>{training.source === "gemini" ? "Gemini" : "Fallback"}</strong>
-              </div>
-            </div>
-            <div className="pill-grid">
-              {plan.focusMuscles.map((muscle) => (
-                <span className="pill active" key={muscle}>{muscle}</span>
-              ))}
-            </div>
-            {generatedAt ? <p className="muted small">Aktualisiert um {generatedAt}</p> : null}
-          </section>
+      {plan && training ? (
+        <section className="training-tracker">
+          <div className="tracker-label">Heute</div>
+          <div className="tracker-stats">
+            <StatCard label="Dauer" value={stats?.duration ?? 0} suffix=" min" tone="green" />
+            <StatCard label="Intensität" value={stats?.intensity ?? 0} suffix="/100" tone="amber" />
+            <StatCard label="Readiness" value={training.readinessScore} suffix="/100" tone="violet" />
+          </div>
 
-          <section className="card muscle-card">
-            <div className="section-head compact">
-              <div>
-                <h2>Muskel-Fokus</h2>
-                <div className="muted">Markiert sind die Muskelgruppen des heutigen Trainings.</div>
-              </div>
-            </div>
-            <MuscleMap focusMuscles={plan.focusMuscles} />
-          </section>
+          <div className="tracker-section-head">
+            <span>Warm-up</span>
+            <small>{generatedAt ? `Aktualisiert ${generatedAt}` : null}</small>
+          </div>
+          <div className="tracker-exercises">
+            {plan.warmup.map((exercise, index) => (
+              <ExerciseCard
+                completedSetIndexes={completedSets[exercise.id] ?? []}
+                exercise={exercise}
+                index={index}
+                key={exercise.id}
+                onCompleteNextSet={completeNextSet}
+                onToggleSet={toggleSet}
+              />
+            ))}
+          </div>
 
-          <TrainingStepSection title="Warm-up" steps={plan.warmup} />
+          <div className="tracker-section-head">
+            <span>Übungen</span>
+            <strong>{planTypeLabels[plan.type] ?? plan.type}</strong>
+          </div>
 
-          <section className="training-section">
-            <div className="section-head compact">
-              <div>
-                <h2>Übungen</h2>
-                <div className="muted">{plan.exercises.length} Blöcke für heute</div>
-              </div>
-            </div>
-            <div className="exercise-grid">
-              {plan.exercises.map((exercise) => (
-                <ExerciseCard exercise={exercise} key={`${exercise.name}-${exercise.sets}-${exercise.restSeconds}`} />
-              ))}
-            </div>
-          </section>
+          <div className="tracker-exercises">
+            {plan.exercises.map((exercise, index) => (
+              <ExerciseCard
+                completedSetIndexes={completedSets[exercise.id] ?? []}
+                exercise={exercise}
+                index={plan.warmup.length + index}
+                key={exercise.id}
+                onCompleteNextSet={completeNextSet}
+                onToggleSet={toggleSet}
+              />
+            ))}
+          </div>
 
-          <TrainingStepSection title="Cooldown" steps={plan.cooldown} />
-        </>
+          <div className="tracker-section-head">
+            <span>Cooldown</span>
+            <small>{plan.focusMuscles.map((muscle) => muscleLabels[muscle]).join(", ")}</small>
+          </div>
+          <div className="tracker-exercises">
+            {plan.cooldown.map((exercise, index) => (
+              <ExerciseCard
+                completedSetIndexes={completedSets[exercise.id] ?? []}
+                exercise={exercise}
+                index={plan.warmup.length + plan.exercises.length + index}
+                key={exercise.id}
+                onCompleteNextSet={completeNextSet}
+                onToggleSet={toggleSet}
+              />
+            ))}
+          </div>
+
+          <button className="primary training-complete" onClick={completePlan} disabled={saving || Boolean(training.completedAt)}>
+            <CheckCircle2 size={18} />
+            {training.completedAt ? "Fertig gespeichert" : saving ? "Speichert" : "Fertig"}
+          </button>
+        </section>
       ) : null}
     </div>
   );
@@ -148,127 +272,136 @@ function TrainingLoading() {
       <div className="card loading-card">
         <Dumbbell size={24} />
         <strong>Training wird vorbereitet</strong>
-        <span className="muted small loading-dots">Gemini plant dein Workout<span>.</span><span>.</span><span>.</span></span>
+        <span className="muted small loading-dots">Der Tagesplan wird lokal berechnet<span>.</span><span>.</span><span>.</span></span>
       </div>
     </div>
   );
 }
 
-function TrainingStepSection({ title, steps }: { title: string; steps: WorkoutStep[] }) {
+function StatCard({ label, value, suffix, tone }: { label: string; value: string | number; suffix: string; tone: "violet" | "green" | "amber" }) {
   return (
-    <section className="training-section">
-      <div className="section-head compact">
-        <div>
-          <h2>{title}</h2>
-        </div>
-      </div>
-      <div className="training-step-list">
-        {steps.map((step) => (
-          <article className="card training-step" key={`${title}-${step.name}`}>
-            <div className="training-step-icon"><Clock3 size={17} /></div>
-            <div>
-              <h3>{step.name}</h3>
-              <p className="muted small">{step.duration}</p>
-              <p>{step.instructions}</p>
-            </div>
-          </article>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ExerciseCard({ exercise }: { exercise: TrainingExercise }) {
-  const effort = exercise.duration ?? `${exercise.sets} Sätze × ${exercise.reps ?? "sauber"}`;
-  return (
-    <article className="card exercise-card">
-      <div className="exercise-card-head">
-        <div>
-          <h3>{exercise.name}</h3>
-          <div className="pill-grid">
-            {exercise.muscles.map((muscle) => (
-              <span className="pill" key={`${exercise.name}-${muscle}`}>{muscle}</span>
-            ))}
-          </div>
-        </div>
-        <span className="difficulty">{exercise.difficulty}</span>
-      </div>
-      <div className="exercise-stats">
-        <span><strong>{effort}</strong></span>
-        <span>Pause: {exercise.restSeconds} Sek.</span>
-      </div>
-      <p>{exercise.instructions}</p>
-      {exercise.techniqueTip ? <p className="technique-tip">{exercise.techniqueTip}</p> : null}
+    <article className="tracker-stat-card">
+      <span>{label}</span>
+      <strong className={`stat-${tone}`}>{value}<small>{suffix}</small></strong>
     </article>
   );
 }
 
-function MuscleMap({ focusMuscles }: { focusMuscles: string[] }) {
-  const active = useMemo(() => new Set(focusMuscles), [focusMuscles]);
-  const tone = (muscle: string) => `muscle-zone ${active.has(muscle) ? "active" : ""}`;
+function ExerciseCard({
+  completedSetIndexes,
+  exercise,
+  index,
+  onCompleteNextSet,
+  onToggleSet,
+}: {
+  completedSetIndexes: number[];
+  exercise: Exercise;
+  index: number;
+  onCompleteNextSet: (exerciseId: string, setCount: number) => void;
+  onToggleSet: (exerciseId: string, setIndex: number) => void;
+}) {
+  const reps = exercise.reps ?? durationLabel(exercise);
+  const setCount = Math.max(1, exercise.sets || 1);
+  const completed = new Set(completedSetIndexes);
+  const isFinished = completed.size >= setCount;
 
   return (
-    <div className="muscle-map" aria-label="Muskelvisualisierung">
-      <svg viewBox="0 0 560 320" role="img" aria-labelledby="muscle-title">
-        <title id="muscle-title">Stilisierte Körperzeichnung mit hervorgehobenen Muskelgruppen</title>
-        <defs>
-          <linearGradient id="muscleActive" x1="0" x2="1" y1="0" y2="1">
-            <stop offset="0%" stopColor="var(--accent)" />
-            <stop offset="100%" stopColor="var(--teal)" />
-          </linearGradient>
-          <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
+    <article className="tracker-exercise-card">
+      <div className="tracker-exercise-head">
+        <ExerciseVisual exercise={exercise} />
+        <div className="exercise-number">{index + 1}</div>
+        <div>
+          <h3>{exercise.name}</h3>
+          <div className="pill-grid">
+            <span className="pill">{muscleLabels[exercise.muscleGroup]}</span>
+            {exercise.secondaryMuscles?.slice(0, 2).map((muscle) => (
+              <span className="pill" key={`${exercise.id}-${muscle}`}>{muscleLabels[muscle]}</span>
+            ))}
+          </div>
+        </div>
+        <button
+          className={`play-button ${isFinished ? "finished" : ""}`}
+          aria-label={isFinished ? `${exercise.name} zurücksetzen` : `Nächstes Set von ${exercise.name} abschließen`}
+          onClick={() => onCompleteNextSet(exercise.id, setCount)}
+        >
+          {isFinished ? <CheckCircle2 size={25} /> : <PlayCircle size={25} />}
+        </button>
+      </div>
+      <div className="set-table" role="table" aria-label={`Sets für ${exercise.name}`}>
+        <div className="set-table-head" role="row">
+          <span role="columnheader">Set</span>
+          <span role="columnheader">Equipment</span>
+          <span role="columnheader">Reps</span>
+          <span role="columnheader">Status</span>
+        </div>
+        {Array.from({ length: setCount }, (_, setIndex) => (
+          <div className={`set-row ${completed.has(setIndex) ? "done" : ""}`} role="row" key={`${exercise.id}-set-${setIndex + 1}`}>
+            <strong role="cell">Set {setIndex + 1}</strong>
+            <span role="cell">{equipmentLabel(exercise)}</span>
+            <span role="cell">{reps}</span>
+            <span role="cell">
+              <button
+                className="status-pill"
+                onClick={() => onToggleSet(exercise.id, setIndex)}
+                aria-pressed={completed.has(setIndex)}
+                aria-label={`Set ${setIndex + 1} von ${exercise.name} ${completed.has(setIndex) ? "als offen markieren" : "abhaken"}`}
+              >
+                {completed.has(setIndex) ? "Fertig" : "Offen"}
+              </button>
+            </span>
+          </div>
+        ))}
+      </div>
+      {exercise.instructions ? <p className="exercise-instructions">{exercise.instructions}</p> : null}
+      <p className="muted small">Pause: {exercise.restSec} Sek. · Schwierigkeit: {exercise.difficulty}/5</p>
+    </article>
+  );
+}
 
-        <g className="body-outline" transform="translate(55 16)">
-          <circle cx="110" cy="28" r="20" />
-          <path d="M92 52 C100 45 120 45 128 52 L140 106 C143 123 132 143 120 153 L118 210 L139 284 L112 284 L103 218 L95 284 L68 284 L89 210 L87 153 C75 143 64 123 67 106 Z" />
-          <path d="M67 78 C39 91 28 121 25 154" />
-          <path d="M140 78 C168 91 179 121 182 154" />
-        </g>
-        <g transform="translate(55 16)">
-          <path className={tone("Schultern")} d="M68 72 C80 54 94 54 103 66 C94 78 81 84 68 78 Z" />
-          <path className={tone("Schultern")} d="M117 66 C126 54 140 54 152 72 C139 84 126 78 117 66 Z" />
-          <path className={tone("Brust")} d="M82 83 C96 72 109 76 110 99 C96 102 86 99 77 91 Z" />
-          <path className={tone("Brust")} d="M110 99 C111 76 124 72 138 83 L143 91 C134 99 124 102 110 99 Z" />
-          <path className={tone("Bauch")} d="M91 108 L129 108 L123 158 L97 158 Z" />
-          <path className={tone("Bizeps")} d="M53 94 C42 110 38 127 37 146 C47 143 53 128 61 103 Z" />
-          <path className={tone("Bizeps")} d="M167 94 C178 110 182 127 183 146 C173 143 167 128 159 103 Z" />
-          <path className={tone("Unterarme")} d="M33 147 C27 165 24 182 27 196 C39 186 42 168 42 148 Z" />
-          <path className={tone("Unterarme")} d="M187 147 C193 165 196 182 193 196 C181 186 178 168 178 148 Z" />
-          <path className={tone("Beine")} d="M84 163 L105 163 L100 232 L69 276 L62 263 L84 206 Z" />
-          <path className={tone("Beine")} d="M115 163 L136 163 L158 263 L151 276 L120 232 Z" />
-          <path className={tone("Waden")} d="M72 235 L98 235 L91 285 L65 285 Z" />
-          <path className={tone("Waden")} d="M122 235 L148 235 L155 285 L129 285 Z" />
-        </g>
-
-        <g className="body-outline" transform="translate(300 16)">
-          <circle cx="110" cy="28" r="20" />
-          <path d="M92 52 C100 45 120 45 128 52 L140 106 C143 123 132 143 120 153 L118 210 L139 284 L112 284 L103 218 L95 284 L68 284 L89 210 L87 153 C75 143 64 123 67 106 Z" />
-          <path d="M67 78 C39 91 28 121 25 154" />
-          <path d="M140 78 C168 91 179 121 182 154" />
-        </g>
-        <g transform="translate(300 16)">
-          <path className={tone("Schultern")} d="M68 72 C80 54 94 54 103 66 C94 78 81 84 68 78 Z" />
-          <path className={tone("Schultern")} d="M117 66 C126 54 140 54 152 72 C139 84 126 78 117 66 Z" />
-          <path className={tone("Rücken")} d="M83 78 C99 68 121 68 137 78 L128 142 C118 151 102 151 92 142 Z" />
-          <path className={tone("Trizeps")} d="M54 94 C45 113 42 132 43 151 C53 147 59 126 63 101 Z" />
-          <path className={tone("Trizeps")} d="M166 94 C175 113 178 132 177 151 C167 147 161 126 157 101 Z" />
-          <path className={tone("Unterarme")} d="M36 148 C30 166 27 183 30 196 C41 187 44 169 44 149 Z" />
-          <path className={tone("Unterarme")} d="M184 148 C190 166 193 183 190 196 C179 187 176 169 176 149 Z" />
-          <path className={tone("Gesäß")} d="M84 153 C97 148 110 152 110 170 C101 178 90 177 81 170 Z" />
-          <path className={tone("Gesäß")} d="M110 170 C110 152 123 148 136 153 L139 170 C130 177 119 178 110 170 Z" />
-          <path className={tone("Beine")} d="M84 177 L105 177 L99 232 L70 276 L63 263 L84 211 Z" />
-          <path className={tone("Beine")} d="M115 177 L136 177 L157 263 L150 276 L121 232 Z" />
-          <path className={tone("Waden")} d="M72 235 L98 235 L91 285 L65 285 Z" />
-          <path className={tone("Waden")} d="M122 235 L148 235 L155 285 L129 285 Z" />
-        </g>
-      </svg>
+function ExerciseVisual({ exercise }: { exercise: Exercise }) {
+  const visual = exercise.visual;
+  if (visual?.url && visual.type !== "placeholder" && visual.type !== "none") {
+    return <div className="exercise-visual" role="img" aria-label={visual.alt ?? exercise.name} style={{ backgroundImage: `url(${visual.url})` }} />;
+  }
+  return (
+    <div className="exercise-visual placeholder" aria-label={`Platzhalter fuer ${exercise.name}`}>
+      <ImageIcon size={18} />
     </div>
   );
+}
+
+function getTrainingStats(plan: WorkoutPlan) {
+  return {
+    duration: plan.durationMin,
+    intensity: plan.intensity,
+  };
+}
+
+function durationLabel(exercise: Exercise) {
+  if (!exercise.durationSec) return "sauber";
+  if (exercise.durationSec < 60) return `${exercise.durationSec} Sekunden`;
+  return `${Math.round(exercise.durationSec / 60)} Minuten`;
+}
+
+function equipmentLabel(exercise: Exercise) {
+  if (exercise.equipment.includes("pullup_bar")) return "Stange";
+  if (exercise.equipment.includes("treadmill")) return "Laufband";
+  return "Bodyweight";
+}
+
+function checkedPayload(completedSets: CompletedSets) {
+  return Object.entries(completedSets).flatMap(([exerciseId, sets]) => sets.map((setIndex) => ({ exerciseId, setIndex, checked: true })));
+}
+
+function completedSetsStorageKey(training: TrainingPayload) {
+  return `dayframe_training_completion_${training.date}_${training.id}`;
+}
+
+function loadCompletedSets(training: TrainingPayload): CompletedSets {
+  try {
+    const saved = localStorage.getItem(completedSetsStorageKey(training));
+    return saved ? (JSON.parse(saved) as CompletedSets) : {};
+  } catch {
+    return {};
+  }
 }

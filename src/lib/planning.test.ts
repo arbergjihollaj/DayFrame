@@ -32,6 +32,40 @@ test("Home day skips campus attendance and commute but keeps self-study visible"
   assert.ok(titles.some((title) => title.includes("Programmieren 2")));
 });
 
+test("Vacation calendar entry replaces the seeded university schedule", () => {
+  const plan = generateDailyPlan({
+    date: "2026-05-21",
+    calendarEvents: [
+      {
+        id: "vacation-2026-05-21",
+        title: "Urlaub",
+        date: "2026-05-21",
+        startTime: "00:00",
+        endTime: "23:59",
+        isAllDay: true,
+        blocksSchedule: true,
+      },
+    ],
+    checkIn: { sleepHours: 8, energy: 6, stress: 1 },
+  });
+  const fixed = buildFixedBlocks("2026-05-21", [
+    {
+      id: "vacation-2026-05-21",
+      title: "Urlaub",
+      date: "2026-05-21",
+      startTime: "00:00",
+      endTime: "23:59",
+      isAllDay: true,
+      blocksSchedule: true,
+    },
+  ]);
+
+  assert.ok(plan.timeBlocks.some((block) => block.kind === "calendar" && block.title === "Urlaub"));
+  assert.equal(plan.timeBlocks.some((block) => block.title.includes("Programmieren 2")), false);
+  assert.equal(plan.timeBlocks.some((block) => block.title.includes("Algorithmen")), false);
+  assert.deepEqual(fixed.map((block) => block.title), ["Urlaub"]);
+});
+
 test("Prog 2 testat outranks normal study work during deadline week", () => {
   const plan = generateDailyPlan({ date: "2026-05-22", calendarEvents: [], checkIn: { sleepHours: 7.5, energy: 4, stress: 2 } });
   const prog2 = plan.timeBlocks.find((block) => block.title.includes("Programmieren 2") && block.priorityBand === "P1");
